@@ -1,0 +1,11 @@
+INFO:     Started server process [27352]
+INFO:     Waiting for application startup.
+INFO:     Application startup complete.
+INFO:     Uvicorn running on http://0.0.0.0:8000 (Press CTRL+C to quit)
+INFO:     127.0.0.1:42562 - "GET / HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42568 - "GET /geocode?q=%ED%8F%89%ED%83%9D%EB%8C%80%ED%95%99%EA%B5%90&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:42758 - "GET /geocode?q=%EA%B3%B5%EB%8F%84%EC%A4%91%ED%95%99%EA%B5%90&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38170 - "GET /geocode?q=%ED%8F%89%ED%83%9D%EC%97%AD&limit=5 HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38178 - "POST /solve HTTP/1.1" 200 OK
+INFO:     127.0.0.1:38192 - "POST /route HTTP/1.1" 200 OK
+ed server process [25919]

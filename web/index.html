@@ -1,0 +1,400 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <title>CVRP Road Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+  <style>
+    body { margin:0; font-family: Arial; }
+    #map { height: 68vh; }
+    .panel { padding: 12px; }
+    .row { margin: 8px 0; display:flex; gap:8px; flex-wrap: wrap; align-items:center; }
+    input { width: 260px; padding:6px; }
+    button { padding: 6px 10px; cursor: pointer; }
+    small { color:#555; }
+    .results { max-height: 150px; overflow:auto; background:#f7f7f7; padding:8px; border:1px solid #ddd; }
+    .result-item { cursor:pointer; padding:6px; border-bottom:1px solid #ddd; }
+    .result-item:hover { background:#eee; }
+    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
+    .box { border:1px solid #ddd; border-radius: 8px; padding:10px; background:#fff; }
+    table { width:100%; border-collapse: collapse; }
+    th, td { border-bottom:1px solid #eee; padding:6px; text-align:left; font-size: 14px; }
+    th { background:#fafafa; }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+    .warn { color:#b00020; font-weight: 700; }
+    pre { background:#f5f5f5; padding:10px; overflow:auto; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <div id="map"></div>
+
+  <div class="panel">
+    <div class="row">
+      <b>장소 검색</b>
+      <input id="q" placeholder="예: 서울역, 평택대학교, CU 편의점"/>
+      <button id="searchBtn">Search</button>
+      <button id="resetBtn">Reset</button>
+      <small>첫 번째로 추가된 지점이 창고(depot)입니다.</small>
+    </div>
+
+    <div id="results" class="results" style="display:none;"></div>
+
+    <div class="row">
+      <b>차량 용량(capacity)</b>
+      <input id="cap" value="30" style="width:120px;"/>
+      <button id="solveBtn">Solve (AI + Road)</button>
+      <small>각 고객 demand 합이 capacity를 넘으면 자동으로 회차(trip) 분할됩니다.</small>
+    </div>
+
+    <div class="grid">
+      <div class="box">
+        <b>Stops (Depot + Customers)</b>
+        <div style="margin-top:8px; max-height: 220px; overflow:auto;">
+          <table id="stopsTable">
+            <thead>
+              <tr>
+                <th>#</th><th>Type</th><th>Demand</th><th>Name</th><th>Action</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+        <small>고객 마커를 클릭하면 demand를 수정할 수 있어요.</small>
+      </div>
+
+      <div class="box">
+        <b>Trip Stats (회차별)</b>
+        <div style="margin-top:8px; max-height: 220px; overflow:auto;">
+          <table id="tripTable">
+            <thead>
+              <tr>
+                <th>Trip</th><th>Load</th><th>Remain</th><th>Road km</th><th>Road min</th><th>Sequence</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
+
+        <div id="totals" style="margin-top:8px;"></div>
+      </div>
+    </div>
+
+    <pre id="out" class="mono" style="margin-top:10px;"></pre>
+  </div>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <script>
+    // ===== Map =====
+    const map = L.map('map').setView([37.5665, 126.9780], 12);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(map);
+
+    // stops: [{lat,lng,demand,name}]
+    let stops = [];
+    let markers = [];
+    let polylines = [];
+
+    function fmtKm(m){ return (m/1000).toFixed(2); }
+    function fmtMin(s){ return Math.round(s/60); }
+
+    function simpleName(full){
+      if(!full) return "";
+      return full.split(",")[0].trim();
+    }
+
+    function idxToName(idx){
+      const s = stops[idx];
+      const nm = simpleName(s?.name || (idx === 0 ? "Depot" : `C${idx}`));
+      return (idx === 0) ? `${nm}(창고)` : nm;
+    }
+
+    function idxToLabel(idx){
+      return `${idx}(${idxToName(idx)})`;
+    }
+
+    function tripToLabeledRoute(trip){
+      return trip.map(idxToLabel).join(" → ");
+    }
+
+    function buildIndexMappingHTML(){
+      if(stops.length === 0) return "";
+      return stops.map((s, i) => {
+        const d = (i === 0) ? 0 : s.demand;
+        return `${i} = ${idxToName(i)} (demand: ${d})`;
+      }).join("<br/>");
+    }
+
+    function clearAll(){
+      stops = [];
+      markers.forEach(m => map.removeLayer(m));
+      polylines.forEach(p => map.removeLayer(p));
+      markers = [];
+      polylines = [];
+
+      document.getElementById("out").textContent = "";
+      document.getElementById("totals").textContent = "";
+      document.querySelector("#stopsTable tbody").innerHTML = "";
+      document.querySelector("#tripTable tbody").innerHTML = "";
+
+      const box = document.getElementById("results");
+      box.style.display = "none";
+      box.innerHTML = "";
+    }
+
+    document.getElementById("resetBtn").onclick = clearAll;
+
+    function renderStops(){
+      const tbody = document.querySelector("#stopsTable tbody");
+      tbody.innerHTML = "";
+
+      stops.forEach((s, idx) => {
+        const tr = document.createElement("tr");
+        const type = (idx === 0) ? "Depot" : "Customer";
+        tr.innerHTML = `
+          <td>${idx}</td>
+          <td>${type}</td>
+          <td>${idx === 0 ? 0 : s.demand}</td>
+          <td title="${s.name}">${(s.name || "").slice(0, 28)}${(s.name||"").length>28?"…":""}</td>
+          <td>
+            ${idx === 0 ? "" : `<button data-del="${idx}">Del</button>`}
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      // delete handlers
+      tbody.querySelectorAll("button[data-del]").forEach(btn => {
+        btn.onclick = () => {
+          const delIdx = parseInt(btn.getAttribute("data-del"), 10);
+
+          stops.splice(delIdx, 1);
+          map.removeLayer(markers[delIdx]);
+          markers.splice(delIdx, 1);
+
+          // re-label remaining markers (인덱스 재정렬)
+          markers.forEach((m, i) => {
+            const s = stops[i];
+            if(i === 0){
+              m.bindPopup(`Depot(0): ${s.name}`);
+            } else {
+              m.bindPopup(`C${i} (${s.demand}) : ${s.name}`);
+            }
+          });
+
+          renderStops();
+        };
+      });
+    }
+
+    function addStop(lat, lng, name){
+      const idx = stops.length;
+      let demand = 0;
+
+      if(idx === 0){
+        demand = 0; // depot
+      } else {
+        const v = prompt(`"${name}" 물류 개수(demand)를 입력해줘 (예: 1~20)`, "1");
+        demand = Math.max(1, parseInt(v || "1", 10));
+      }
+
+      stops.push({lat, lng, demand, name});
+
+      const label = (idx === 0) ? `Depot(0): ${name}` : `C${idx} (${demand}) : ${name}`;
+      const m = L.marker([lat, lng]).addTo(map).bindPopup(label);
+
+      // ✅ 인덱스가 삭제/변경될 수 있어서 클릭 시 "현재 인덱스"로 다시 계산
+      m.on('click', () => {
+        const curIdx = markers.indexOf(m);
+        if(curIdx <= 0) return;
+
+        const nv = prompt(`C${curIdx} demand 수정`, String(stops[curIdx].demand));
+        const nd = Math.max(1, parseInt(nv || String(stops[curIdx].demand), 10));
+        stops[curIdx].demand = nd;
+
+        const nm = stops[curIdx].name;
+        m.bindPopup(`C${curIdx} (${nd}) : ${nm}`);
+        renderStops();
+      });
+
+      markers.push(m);
+      renderStops();
+      map.setView([lat, lng], 14);
+    }
+
+    // ===== Search -> /geocode =====
+    document.getElementById("searchBtn").onclick = async () => {
+      const q = document.getElementById("q").value.trim();
+      if(!q) return;
+
+      const res = await fetch(`/geocode?q=${encodeURIComponent(q)}&limit=5`);
+      const data = await res.json();
+
+      const box = document.getElementById("results");
+      box.innerHTML = "";
+      box.style.display = "block";
+
+      (data.results || []).forEach(item => {
+        const div = document.createElement("div");
+        div.className = "result-item";
+        div.textContent = item.name;
+        div.onclick = () => {
+          addStop(item.lat, item.lng, item.name);
+          box.style.display = "none";
+          box.innerHTML = "";
+        };
+        box.appendChild(div);
+      });
+
+      if((data.results || []).length === 0){
+        box.innerHTML = "<div>검색 결과 없음</div>";
+      }
+    };
+
+    // ===== Solve + Road =====
+    async function routeTrip(tripCoords){
+      const rr = await fetch("/route", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({ coords: tripCoords })
+      });
+      return await rr.json();
+    }
+
+    function sumDemand(indices, demands){
+      let s = 0;
+      for(const idx of indices){
+        if(idx !== 0) s += demands[idx];
+      }
+      return s;
+    }
+
+    document.getElementById("solveBtn").onclick = async () => {
+      try{
+        if(stops.length < 2){
+          alert("창고 + 고객 1명 이상 추가해줘");
+          return;
+        }
+
+        const capacity = parseFloat(document.getElementById("cap").value);
+        if(!Number.isFinite(capacity) || capacity <= 0){
+          alert("capacity를 1 이상 숫자로 입력해줘");
+          return;
+        }
+
+        const coords = stops.map(s => [s.lat, s.lng]);
+        const demands = stops.map(s => s.demand);
+        demands[0] = 0;
+
+        for(let i=1;i<demands.length;i++){
+          if(demands[i] > capacity){
+            alert(`C${i} demand(${demands[i]})가 capacity(${capacity})보다 커서 배송 불가! demand를 줄이거나 capacity를 늘려줘.`);
+            return;
+          }
+        }
+
+        // 1) AI solve
+        const payload = { coords, demands, capacity, decode: "greedy" };
+        const res = await fetch("/solve", {
+          method: "POST",
+          headers: {"Content-Type":"application/json"},
+          body: JSON.stringify(payload)
+        });
+
+        const solText = await res.text();
+        let sol;
+        try { sol = JSON.parse(solText); }
+        catch(e){
+          document.getElementById("out").textContent = solText;
+          alert("solve 응답이 JSON이 아님(서버 에러 가능). out 창 확인!");
+          return;
+        }
+
+        document.getElementById("out").textContent = JSON.stringify(sol, null, 2);
+
+        if(sol.error){
+          alert("solve error: " + sol.error);
+          return;
+        }
+        if(!Array.isArray(sol.trips)){
+          alert("solve 결과에 trips가 없음. out 창 확인!");
+          return;
+        }
+
+        // 2) clear polylines + trip table
+        polylines.forEach(p => map.removeLayer(p));
+        polylines = [];
+        const tripBody = document.querySelector("#tripTable tbody");
+        tripBody.innerHTML = "";
+        document.getElementById("totals").textContent = "";
+
+        let total_m = 0, total_s = 0;
+
+        // 3) for each trip
+        let tnum = 0;
+        for(const trip of sol.trips){
+          tnum++;
+
+          const load = sumDemand(trip, demands);
+          const remain = capacity - load;
+
+          const tripCoords = trip.map(idx => coords[idx]);
+
+          const rd = await routeTrip(tripCoords);
+
+          // ✅ Sequence는 라벨형(인덱스+이름)
+          const seq = tripToLabeledRoute(trip);
+
+          // ✅ 거리/시간은 rd 성공 시 채움
+          let roadKm = "-", roadMin = "-";
+          if(rd && !rd.error && typeof rd.distance_m === "number" && typeof rd.duration_s === "number"){
+            total_m += rd.distance_m;
+            total_s += rd.duration_s;
+
+            roadKm = fmtKm(rd.distance_m);
+            roadMin = fmtMin(rd.duration_s);
+
+            const line = L.polyline(rd.polyline).addTo(map).bindPopup(`Trip ${tnum}`);
+            polylines.push(line);
+          }
+
+          const tr = document.createElement("tr");
+          const warn = (remain < 0) ? "warn" : "";
+          tr.innerHTML = `
+            <td>${tnum}</td>
+            <td>${load}</td>
+            <td class="${warn}">${remain}</td>
+            <td>${roadKm}</td>
+            <td>${roadMin}</td>
+            <td class="mono" title="${seq}">${seq.length>80 ? seq.slice(0,80)+"…" : seq}</td>
+          `;
+          tripBody.appendChild(tr);
+        }
+
+        // ✅ Sequence 칸에 "인덱스-장소 매핑" 1줄 추가(표 마지막)
+        const mapRow = document.createElement("tr");
+        mapRow.innerHTML = `
+          <td colspan="5"></td>
+          <td class="mono">
+            <b>인덱스-장소 매핑</b><br/>
+            ${buildIndexMappingHTML()}
+          </td>
+        `;
+        tripBody.appendChild(mapRow);
+
+        // 4) totals
+        const totalsDiv = document.getElementById("totals");
+        totalsDiv.innerHTML = `<b>총 도로거리</b>: ${fmtKm(total_m)} km, <b>총 시간</b>: ${fmtMin(total_s)} 분`;
+
+        // map bounds
+        if(polylines.length > 0){
+          const group = L.featureGroup(polylines);
+          map.fitBounds(group.getBounds().pad(0.2));
+        }
+      } catch(err){
+        document.getElementById("out").textContent = String(err);
+        alert("Solve 중 JS 에러 발생! out 창 확인해줘.");
+      }
+    };
+  </script>
+</body>
+</html>
