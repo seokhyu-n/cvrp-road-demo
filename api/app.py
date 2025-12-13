@@ -17,13 +17,12 @@ app = FastAPI(title="CVRP Solver API")
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # 같은 origin으로만 쓸 거면 없어도 되지만 둬도 됨
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# ✅ 프로젝트 루트 경로 (api/의 상위 폴더)
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_INDEX = BASE_DIR / "web" / "index.html"
 DEFAULT_MODEL_PATH = BASE_DIR / "checkpoints" / "best.pt"
@@ -41,7 +40,6 @@ class RouteRequest(BaseModel):
 
 
 def _normalize_uniform(coords_tensor: torch.Tensor):
-    """Uniform normalization (translation + uniform scale)."""
     mins = coords_tensor.min(dim=0).values
     maxs = coords_tensor.max(dim=0).values
     span = max((maxs - mins).max().item(), 1e-9)
@@ -54,19 +52,13 @@ def split_trips_capacity_only(
     capacity: float
 ) -> Tuple[List[List[int]], List[int]]:
     """
-    ✅ '중간 창고 복귀 금지(용량 부족할 때만 복귀)' 규칙 구현.
-
-    - 모델이 낸 path에는 0(depot)이 여러 번 섞여 있을 수 있음.
-    - 우리는 '고객 방문 순서'만 추출(0 제거)하고,
-    - 용량(capacity)을 넘길 때만 depot(0)로 돌아가도록 회차를 분할한다.
-
-    반환:
-      trips: [[0, a, b, 0], [0, c, 0], ...]
-      order: [a, b, c, ...]  (0 제외 고객 방문 순서)
+    ✅ '용량이 부족할 때만' depot(0) 복귀하여 회차를 나누는 규칙
+    - path 안의 0 때문에 회차가 쪼개지는 걸 무시하고,
+    - 고객 방문 순서만 뽑아서(capacity 기준으로만) trips를 만든다.
     """
     n = len(demands)
 
-    # 1) 고객 방문 순서 추출(0 제거 + 중복 제거)
+    # 1) 고객 방문 순서 추출 (0 제거 + 중복 제거)
     order: List[int] = []
     seen = set([0])
     for v in path:
@@ -74,7 +66,7 @@ def split_trips_capacity_only(
             order.append(v)
             seen.add(v)
 
-    # (안전장치) 혹시 모델이 누락한 고객이 있으면 뒤에 붙임
+    # (안전장치) 혹시 누락 고객이 있으면 뒤에 붙임
     for i in range(1, n):
         if i not in seen:
             order.append(i)
@@ -89,7 +81,7 @@ def split_trips_capacity_only(
         if d > capacity:
             raise ValueError(f"Customer {c} demand({d}) > capacity({capacity})")
 
-        # 다음 고객을 실으면 초과되는 순간에만 회차 종료
+        # 다음 고객을 싣고 가면 초과되는 순간에만 회차 종료
         if (load + d > capacity) and (len(cur) > 1):
             cur.append(0)
             trips.append(cur)
@@ -106,12 +98,11 @@ def split_trips_capacity_only(
 
 
 device = "cuda" if torch.cuda.is_available() else "cpu"
-
 MODEL_PATH = os.environ.get("CVRP_MODEL", str(DEFAULT_MODEL_PATH))
+
 if not Path(MODEL_PATH).exists():
     print(f"[WARN] Model not found: {MODEL_PATH}")
 
-# 모델은 서버 시작 시 로딩(현재 구조 유지)
 ckpt = torch.load(MODEL_PATH, map_location=device)
 n_customers_trained = ckpt.get("n_customers", None)
 
@@ -129,7 +120,12 @@ def home():
 
 @app.get("/health")
 def health():
-    return {"ok": True, "device": device, "trained_n_customers": n_customers_trained}
+    return {
+        "ok": True,
+        "device": device,
+        "trained_n_customers": n_customers_trained,
+        "split_mode": "capacity_only",   # ✅ 이거 보이면 최신 코드가 배포된 것
+    }
 
 
 @app.get("/geocode")
@@ -165,7 +161,6 @@ def route(req: RouteRequest):
     if len(req.coords) < 2:
         return {"error": "need at least 2 coords"}
 
-    # OSRM expects lon,lat
     coord_str = ";".join([f"{lng},{lat}" for lat, lng in req.coords])
     url = f"https://router.project-osrm.org/route/v1/driving/{coord_str}"
     params = {"overview": "full", "geometries": "geojson"}
@@ -195,7 +190,7 @@ def solve(req: SolveRequest):
 
     coords = torch.tensor(req.coords, dtype=torch.float32)
     demands = torch.tensor(req.demands, dtype=torch.float32)
-    cap = torch.tensor([req.capacity], dtype=torch.float32)
+    cap = float(req.capacity)
 
     if coords.ndim != 2 or coords.size(1) != 2:
         return {"error": "coords must be (N,2)"}
@@ -205,14 +200,14 @@ def solve(req: SolveRequest):
         return {"error": "demands[0] must be 0 (depot)"}
     if req.decode not in ["greedy", "sampling"]:
         return {"error": "decode must be 'greedy' or 'sampling'"}
-    if not (req.capacity > 0):
+    if not (cap > 0):
         return {"error": "capacity must be > 0"}
 
     coords_n = _normalize_uniform(coords)
 
     coords_b = coords_n.unsqueeze(0).to(device)
     demands_b = demands.unsqueeze(0).to(device)
-    cap_b = cap.to(device)
+    cap_b = torch.tensor([cap], dtype=torch.float32).to(device)
 
     with torch.no_grad():
         path, _ = model(coords_b, demands_b, cap_b, decode_type=req.decode)
@@ -223,19 +218,19 @@ def solve(req: SolveRequest):
             torch.tensor(path, device=device).unsqueeze(0)
         ).item()
 
-    # ✅ 여기서 핵심 변경: '용량 부족할 때만' 회차 분할
+    # ✅ 여기서 회차를 "용량 기준"으로만 만든다
     try:
         trips, visit_order = split_trips_capacity_only(
             path=path,
             demands=demands.tolist(),
-            capacity=float(req.capacity),
+            capacity=cap,
         )
     except Exception as e:
         return {"error": str(e)}
 
     return {
-        "path": path,                 # 모델 원본 출력(디버그용)
+        "path": path,                 # 원본 path(디버그용)
         "visit_order": visit_order,   # 고객 방문 순서(0 제외)
-        "trips": trips,               # ✅ 우리가 원하는 규칙으로 만든 회차
+        "trips": trips,               # ✅ 용량 기준 회차
         "distance_norm": dist,
     }
