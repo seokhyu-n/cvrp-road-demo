@@ -46,6 +46,61 @@ def _normalize_uniform(coords_tensor: torch.Tensor):
     return (coords_tensor - mins) / span
 
 
+def _clean_path(path: List[int], n_nodes: int) -> List[int]:
+    """
+    모델이 내는 path가 이런 형태일 수 있음:
+    - 끝에 0 패딩이 길게 붙음
+    - 연속 0이 많음
+    - 혹시 범위를 벗어난 인덱스가 섞임
+
+    ✅ 디버그/로그 가독성을 위해 정리:
+    - int로 캐스팅
+    - [0..n-1] 범위 밖 제거
+    - 연속 0 압축
+    - 마지막 의미 있는 방문 뒤로 trailing 0 제거 후, 끝은 0으로 보정
+    """
+    # 1) int 캐스팅 + 범위 필터
+    p = []
+    for v in path:
+        try:
+            iv = int(v)
+        except:
+            continue
+        if 0 <= iv < n_nodes:
+            p.append(iv)
+
+    if not p:
+        return [0, 0]
+
+    # 2) 연속 0 압축
+    compact = [p[0]]
+    for v in p[1:]:
+        if v == 0 and compact[-1] == 0:
+            continue
+        compact.append(v)
+
+    # 3) trailing 0 제거(마지막 고객 뒤까지만 남김)
+    last_nonzero = -1
+    for i in range(len(compact) - 1, -1, -1):
+        if compact[i] != 0:
+            last_nonzero = i
+            break
+
+    if last_nonzero == -1:
+        # 전부 0이면
+        return [0, 0]
+
+    compact = compact[: last_nonzero + 1]
+
+    # 4) 시작/끝 depot 보정
+    if compact[0] != 0:
+        compact = [0] + compact
+    if compact[-1] != 0:
+        compact = compact + [0]
+
+    return compact
+
+
 def split_trips_capacity_only(
     path: List[int],
     demands: List[float],
@@ -53,16 +108,18 @@ def split_trips_capacity_only(
 ) -> Tuple[List[List[int]], List[int]]:
     """
     ✅ '용량이 부족할 때만' depot(0) 복귀하여 회차를 나누는 규칙
+
     - path 안의 0 때문에 회차가 쪼개지는 걸 무시하고,
-    - 고객 방문 순서만 뽑아서(capacity 기준으로만) trips를 만든다.
+    - 고객 방문 순서(visit_order)만 뽑아서
+    - capacity 초과 시에만 trips를 분할한다.
     """
     n = len(demands)
 
     # 1) 고객 방문 순서 추출 (0 제거 + 중복 제거)
     order: List[int] = []
-    seen = set([0])
+    seen = {0}
     for v in path:
-        if v != 0 and v not in seen and 1 <= v < n:
+        if v != 0 and (v not in seen) and (1 <= v < n):
             order.append(v)
             seen.add(v)
 
@@ -97,6 +154,14 @@ def split_trips_capacity_only(
     return trips, order
 
 
+def _trip_load(trip: List[int], demands: List[float]) -> float:
+    s = 0.0
+    for idx in trip:
+        if idx != 0:
+            s += float(demands[idx])
+    return s
+
+
 device = "cuda" if torch.cuda.is_available() else "cpu"
 MODEL_PATH = os.environ.get("CVRP_MODEL", str(DEFAULT_MODEL_PATH))
 
@@ -124,7 +189,8 @@ def health():
         "ok": True,
         "device": device,
         "trained_n_customers": n_customers_trained,
-        "split_mode": "capacity_only",   # ✅ 이거 보이면 최신 코드가 배포된 것
+        "split_mode": "capacity_only",
+        "commit": os.environ.get("RENDER_GIT_COMMIT"),
     }
 
 
@@ -161,6 +227,7 @@ def route(req: RouteRequest):
     if len(req.coords) < 2:
         return {"error": "need at least 2 coords"}
 
+    # OSRM: lon,lat
     coord_str = ";".join([f"{lng},{lat}" for lat, lng in req.coords])
     url = f"https://router.project-osrm.org/route/v1/driving/{coord_str}"
     params = {"overview": "full", "geometries": "geojson"}
@@ -203,6 +270,11 @@ def solve(req: SolveRequest):
     if not (cap > 0):
         return {"error": "capacity must be > 0"}
 
+    # 개별 고객 demand > capacity면 불가능
+    for i in range(1, demands.size(0)):
+        if float(demands[i].item()) > cap:
+            return {"error": f"Customer {i} demand({float(demands[i].item())}) > capacity({cap})"}
+
     coords_n = _normalize_uniform(coords)
 
     coords_b = coords_n.unsqueeze(0).to(device)
@@ -210,15 +282,19 @@ def solve(req: SolveRequest):
     cap_b = torch.tensor([cap], dtype=torch.float32).to(device)
 
     with torch.no_grad():
-        path, _ = model(coords_b, demands_b, cap_b, decode_type=req.decode)
-        path = path[0].tolist()
+        raw_path, _ = model(coords_b, demands_b, cap_b, decode_type=req.decode)
+        raw_path = raw_path[0].tolist()
 
+        # ✅ 디버그/가독성용 path 정리
+        path = _clean_path(raw_path, n_nodes=coords.size(0))
+
+        # distance는 "정리된 path" 기준으로 계산(보는 값이랑 일치)
         dist = route_length(
             coords_b,
             torch.tensor(path, device=device).unsqueeze(0)
         ).item()
 
-    # ✅ 여기서 회차를 "용량 기준"으로만 만든다
+    # ✅ trips는 "용량 기준"으로만 만든다(모델이 0 남발해도 무시)
     try:
         trips, visit_order = split_trips_capacity_only(
             path=path,
@@ -228,9 +304,12 @@ def solve(req: SolveRequest):
     except Exception as e:
         return {"error": str(e)}
 
+    trip_loads = [ _trip_load(t, demands.tolist()) for t in trips ]
+
     return {
-        "path": path,                 # 원본 path(디버그용)
-        "visit_order": visit_order,   # 고객 방문 순서(0 제외)
-        "trips": trips,               # ✅ 용량 기준 회차
+        "path": path,                    # 정리된 path(디버그용)
+        "visit_order": visit_order,      # 고객 방문 순서(0 제외)
+        "trips": trips,                  # ✅ capacity 기준 회차
+        "trip_loads": trip_loads,        # (프론트 표에 쓰기 좋음)
         "distance_norm": dist,
     }
