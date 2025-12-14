@@ -226,7 +226,7 @@
       const q = document.getElementById("q").value.trim();
       if(!q) return;
 
-      const res = await fetch(`/geocode?q=${encodeURIComponent(q)}&limit=5`);
+      const res = await fetch(`/geocode?q=${encodeURIComponent(q)}&limit=30`);
       const data = await res.json();
 
       const box = document.getElementById("results");
