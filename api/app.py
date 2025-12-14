@@ -195,7 +195,7 @@ def health():
 
 
 @app.get("/geocode")
-def geocode(q: str, limit: int = 5):
+def geocode(q: str, limit: int = 30):
     url = "https://nominatim.openstreetmap.org/search"
     params = {
         "q": q,
