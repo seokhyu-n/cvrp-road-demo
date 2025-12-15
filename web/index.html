@@ -24,6 +24,20 @@
     .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
     .warn { color:#b00020; font-weight: 700; }
     pre { background:#f5f5f5; padding:10px; overflow:auto; border-radius: 8px; }
+
+    /* ✅ 적재율 게이지 */
+    .load-wrap{ min-width: 170px; }
+    .load-bar{
+      height: 10px;
+      border-radius: 6px;
+      background: #eee;
+      overflow: hidden;
+    }
+    .load-bar > div{ height:10px; background:#4caf50; }
+    .load-txt{ font-size:12px; margin-top:4px; color:#444; }
+
+    /* ✅ 비교 박스 */
+    .compare-line{ margin: 4px 0; }
   </style>
 </head>
 <body>
@@ -44,7 +58,16 @@
       <b>차량 용량(capacity)</b>
       <input id="cap" value="30" style="width:120px;"/>
       <button id="solveBtn">Solve (AI + Road)</button>
+      <button id="baselineBtn">Baseline 비교</button>
       <small>각 고객 demand 합이 capacity를 넘으면 자동으로 회차(trip) 분할됩니다.</small>
+    </div>
+
+    <!-- ✅ 비교 결과 박스 -->
+    <div class="box" style="margin:10px 0;">
+      <b>AI vs Baseline 비교</b>
+      <div id="compareSummary" style="margin-top:8px; font-size:14px;">
+        아직 비교 전입니다. (먼저 Solve를 누른 뒤 Baseline 비교를 누르면 좋아요)
+      </div>
     </div>
 
     <div class="grid">
@@ -60,7 +83,7 @@
             <tbody></tbody>
           </table>
         </div>
-        <small>고객 마커를 클릭하면 demand를 수정할 수 있어요.</small>
+        <small>고객 마커를 클릭하면 물류량(demand)을 수정할 수 있어요.</small>
       </div>
 
       <div class="box">
@@ -92,7 +115,10 @@
     // stops: [{lat,lng,demand,name}]
     let stops = [];
     let markers = [];
-    let polylines = [];
+    let polylines = [];          // AI 경로 라인
+    let baselineLines = [];      // Baseline 라인
+
+    let lastAiRoad = null;       // { km, min } 저장 (비교에 사용)
 
     function fmtKm(m){ return (m/1000).toFixed(2); }
     function fmtMin(s){ return Math.round(s/60); }
@@ -104,7 +130,7 @@
 
     function idxToName(idx){
       const s = stops[idx];
-      const nm = simpleName(s?.name || (idx === 0 ? "Depot" : `C${idx}`));
+      const nm = simpleName(s?.name || (idx === 0 ? "창고" : `C${idx}`));
       return (idx === 0) ? `${nm}(창고)` : nm;
     }
 
@@ -124,15 +150,35 @@
       }).join("<br/>");
     }
 
+    function loadCellHTML(load, capacity){
+      const pct = capacity > 0 ? Math.round((load / capacity) * 100) : 0;
+      const w = Math.max(0, Math.min(pct, 100));
+      return `
+        <div class="load-wrap">
+          <div class="load-bar"><div style="width:${w}%"></div></div>
+          <div class="load-txt">${load.toFixed(1)} / ${capacity} (${pct}%)</div>
+        </div>
+      `;
+    }
+
+    function clearBaseline(){
+      baselineLines.forEach(p => map.removeLayer(p));
+      baselineLines = [];
+    }
+
     function clearAll(){
       stops = [];
       markers.forEach(m => map.removeLayer(m));
       polylines.forEach(p => map.removeLayer(p));
+      clearBaseline();
+
       markers = [];
       polylines = [];
+      lastAiRoad = null;
 
       document.getElementById("out").textContent = "";
       document.getElementById("totals").textContent = "";
+      document.getElementById("compareSummary").textContent = "아직 비교 전입니다. (먼저 Solve를 누른 뒤 Baseline 비교를 누르면 좋아요)";
       document.querySelector("#stopsTable tbody").innerHTML = "";
       document.querySelector("#tripTable tbody").innerHTML = "";
 
@@ -149,20 +195,19 @@
 
       stops.forEach((s, idx) => {
         const tr = document.createElement("tr");
-        const type = (idx === 0) ? "Depot" : "Customer";
+        const type = (idx === 0) ? "창고" : "고객";
         tr.innerHTML = `
           <td>${idx}</td>
           <td>${type}</td>
           <td>${idx === 0 ? 0 : s.demand}</td>
           <td title="${s.name}">${(s.name || "").slice(0, 28)}${(s.name||"").length>28?"…":""}</td>
           <td>
-            ${idx === 0 ? "" : `<button data-del="${idx}">Del</button>`}
+            ${idx === 0 ? "" : `<button data-del="${idx}">삭제</button>`}
           </td>
         `;
         tbody.appendChild(tr);
       });
 
-      // delete handlers
       tbody.querySelectorAll("button[data-del]").forEach(btn => {
         btn.onclick = () => {
           const delIdx = parseInt(btn.getAttribute("data-del"), 10);
@@ -175,9 +220,9 @@
           markers.forEach((m, i) => {
             const s = stops[i];
             if(i === 0){
-              m.bindPopup(`Depot(0): ${s.name}`);
+              m.bindPopup(`창고(0): ${s.name}`);
             } else {
-              m.bindPopup(`C${i} (${s.demand}) : ${s.name}`);
+              m.bindPopup(`고객${i} (demand=${s.demand}) : ${s.name}`);
             }
           });
 
@@ -199,20 +244,20 @@
 
       stops.push({lat, lng, demand, name});
 
-      const label = (idx === 0) ? `Depot(0): ${name}` : `C${idx} (${demand}) : ${name}`;
+      const label = (idx === 0) ? `창고(0): ${name}` : `고객${idx} (demand=${demand}) : ${name}`;
       const m = L.marker([lat, lng]).addTo(map).bindPopup(label);
 
-      // ✅ 인덱스가 삭제/변경될 수 있어서 클릭 시 "현재 인덱스"로 다시 계산
+      // 클릭하면 demand 수정
       m.on('click', () => {
         const curIdx = markers.indexOf(m);
         if(curIdx <= 0) return;
 
-        const nv = prompt(`C${curIdx} demand 수정`, String(stops[curIdx].demand));
+        const nv = prompt(`고객${curIdx} 물류량 수정`, String(stops[curIdx].demand));
         const nd = Math.max(1, parseInt(nv || String(stops[curIdx].demand), 10));
         stops[curIdx].demand = nd;
 
         const nm = stops[curIdx].name;
-        m.bindPopup(`C${curIdx} (${nd}) : ${nm}`);
+        m.bindPopup(`고객${curIdx} (demand=${nd}) : ${nm}`);
         renderStops();
       });
 
@@ -268,6 +313,104 @@
       return s;
     }
 
+    // ---------- Baseline (Nearest Neighbor) ----------
+    function baselineNNPath(capacity){
+      const n = stops.length;
+      const unvisited = new Set();
+      for(let i=1;i<n;i++) unvisited.add(i);
+
+      let path = [0];
+      let cur = 0;
+      let load = 0;
+
+      while(unvisited.size > 0){
+        const feas = [];
+        unvisited.forEach(i => {
+          if(load + (stops[i].demand||0) <= capacity) feas.push(i);
+        });
+
+        if(feas.length === 0){
+          path.push(0);
+          cur = 0;
+          load = 0;
+          continue;
+        }
+
+        const curLL = L.latLng(stops[cur].lat, stops[cur].lng);
+        let best = feas[0], bestD = Infinity;
+        for(const i of feas){
+          const d = curLL.distanceTo(L.latLng(stops[i].lat, stops[i].lng));
+          if(d < bestD){ bestD = d; best = i; }
+        }
+
+        path.push(best);
+        load += (stops[best].demand||0);
+        unvisited.delete(best);
+        cur = best;
+      }
+
+      if(path[path.length-1] !== 0) path.push(0);
+      return path;
+    }
+
+    function pathToTripsByZeros(path){
+      const trips = [];
+      let cur = [0];
+      for(let k=1;k<path.length;k++){
+        const v = path[k];
+        cur.push(v);
+        if(v === 0 && cur.length > 1){
+          trips.push(cur);
+          cur = [0];
+        }
+      }
+      return trips;
+    }
+
+    async function roadTotalsAndDraw(trips, style){
+      let total_m = 0, total_s = 0;
+      const lines = [];
+
+      for(let t=0;t<trips.length;t++){
+        const trip = trips[t];
+        const coords = trip.map(i => [stops[i].lat, stops[i].lng]);
+        if(coords.length < 2) continue;
+
+        const rd = await routeTrip(coords);
+        if(rd && !rd.error && typeof rd.distance_m === "number" && typeof rd.duration_s === "number"){
+          total_m += rd.distance_m;
+          total_s += rd.duration_s;
+
+          if(rd.polyline){
+            const line = L.polyline(rd.polyline, style).addTo(map).bindPopup(`Trip ${t+1}`);
+            lines.push(line);
+          }
+        }
+      }
+
+      return { km: total_m/1000.0, min: total_s/60.0, lines };
+    }
+
+    function renderCompare(ai, base){
+      const el = document.getElementById("compareSummary");
+      const aiKm = ai ? ai.km : null;
+      const aiMin = ai ? ai.min : null;
+
+      let html = "";
+      html += `<div class="compare-line">Baseline(NN): <b>${base.km.toFixed(2)} km</b>, ${base.min.toFixed(0)} 분</div>`;
+
+      if(aiKm != null){
+        html += `<div class="compare-line">AI: <b>${aiKm.toFixed(2)} km</b>, ${aiMin.toFixed(0)} 분</div>`;
+        const diff = ((base.km - aiKm) / base.km) * 100; // base 대비 AI 개선률
+        html += `<div class="compare-line">개선(대략): <b>${diff.toFixed(1)}%</b></div>`;
+      } else {
+        html += `<div class="compare-line">(AI 결과가 없어서 Baseline만 표시)</div>`;
+      }
+
+      el.innerHTML = html;
+    }
+
+    // ---------- AI Solve ----------
     document.getElementById("solveBtn").onclick = async () => {
       try{
         if(stops.length < 2){
@@ -287,12 +430,11 @@
 
         for(let i=1;i<demands.length;i++){
           if(demands[i] > capacity){
-            alert(`C${i} demand(${demands[i]})가 capacity(${capacity})보다 커서 배송 불가! demand를 줄이거나 capacity를 늘려주세요..`);
+            alert(`고객${i} 물류량(${demands[i]})이 capacity(${capacity})보다 커서 배송 불가! 물류량을 줄이거나 capacity를 늘려주세요.`);
             return;
           }
         }
 
-        // 1) AI solve
         const payload = { coords, demands, capacity, decode: "greedy" };
         const res = await fetch("/solve", {
           method: "POST",
@@ -320,16 +462,18 @@
           return;
         }
 
-        // 2) clear polylines + trip table
+        // clear lines/tables
         polylines.forEach(p => map.removeLayer(p));
         polylines = [];
+        clearBaseline(); // baseline은 별도로 다시 그릴 수 있게 초기화
+
         const tripBody = document.querySelector("#tripTable tbody");
         tripBody.innerHTML = "";
         document.getElementById("totals").textContent = "";
 
         let total_m = 0, total_s = 0;
 
-        // 3) for each trip
+        // AI trips draw
         let tnum = 0;
         for(const trip of sol.trips){
           tnum++;
@@ -338,13 +482,10 @@
           const remain = capacity - load;
 
           const tripCoords = trip.map(idx => coords[idx]);
-
           const rd = await routeTrip(tripCoords);
 
-          // ✅ Sequence는 라벨형(인덱스+이름)
           const seq = tripToLabeledRoute(trip);
 
-          // ✅ 거리/시간은 rd 성공 시 채움
           let roadKm = "-", roadMin = "-";
           if(rd && !rd.error && typeof rd.distance_m === "number" && typeof rd.duration_s === "number"){
             total_m += rd.distance_m;
@@ -353,7 +494,7 @@
             roadKm = fmtKm(rd.distance_m);
             roadMin = fmtMin(rd.duration_s);
 
-            const line = L.polyline(rd.polyline).addTo(map).bindPopup(`Trip ${tnum}`);
+            const line = L.polyline(rd.polyline).addTo(map).bindPopup(`AI Trip ${tnum}`);
             polylines.push(line);
           }
 
@@ -361,8 +502,8 @@
           const warn = (remain < 0) ? "warn" : "";
           tr.innerHTML = `
             <td>${tnum}</td>
-            <td>${load}</td>
-            <td class="${warn}">${remain}</td>
+            <td>${loadCellHTML(load, capacity)}</td>
+            <td class="${warn}">${remain.toFixed(1)}</td>
             <td>${roadKm}</td>
             <td>${roadMin}</td>
             <td class="mono" title="${seq}">${seq.length>80 ? seq.slice(0,80)+"…" : seq}</td>
@@ -370,22 +511,23 @@
           tripBody.appendChild(tr);
         }
 
-        // ✅ Sequence 칸에 "인덱스-장소 매핑" 1줄 추가(표 마지막)
+        // 인덱스-장소 매핑(표 마지막 줄)
         const mapRow = document.createElement("tr");
         mapRow.innerHTML = `
-          <td colspan="5"></td>
-          <td class="mono">
+          <td colspan="6" class="mono">
             <b>인덱스-장소 매핑</b><br/>
             ${buildIndexMappingHTML()}
           </td>
         `;
         tripBody.appendChild(mapRow);
 
-        // 4) totals
+        // totals
         const totalsDiv = document.getElementById("totals");
         totalsDiv.innerHTML = `<b>총 도로거리</b>: ${fmtKm(total_m)} km, <b>총 시간</b>: ${fmtMin(total_s)} 분`;
 
-        // map bounds
+        // ✅ AI totals 저장(비교용)
+        lastAiRoad = { km: total_m/1000.0, min: total_s/60.0 };
+
         if(polylines.length > 0){
           const group = L.featureGroup(polylines);
           map.fitBounds(group.getBounds().pad(0.2));
@@ -393,6 +535,38 @@
       } catch(err){
         document.getElementById("out").textContent = String(err);
         alert("Solve 중 JS 에러 발생! out 창 확인해줘.");
+      }
+    };
+
+    // ---------- Baseline 비교 버튼 ----------
+    document.getElementById("baselineBtn").onclick = async () => {
+      try{
+        if(stops.length < 2){
+          alert("창고 + 고객 1명 이상 추가해주세요.");
+          return;
+        }
+        const capacity = parseFloat(document.getElementById("cap").value);
+        if(!Number.isFinite(capacity) || capacity <= 0){
+          alert("capacity를 1 이상 숫자로 입력해주세요.");
+          return;
+        }
+
+        clearBaseline();
+
+        // 1) baseline path/trips 생성
+        const basePath = baselineNNPath(capacity);
+        const baseTrips = pathToTripsByZeros(basePath);
+
+        // 2) OSRM 경로로 거리/시간 합산 + 지도 표시(점선)
+        const base = await roadTotalsAndDraw(baseTrips, { dashArray: "6 6", weight: 3, opacity: 0.9 });
+        baselineLines = base.lines;
+
+        // 3) 비교 출력
+        renderCompare(lastAiRoad, base);
+
+      } catch(err){
+        document.getElementById("out").textContent = String(err);
+        alert("Baseline 비교 중 에러! out 창 확인해줘.");
       }
     };
   </script>
