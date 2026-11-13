@@ -25,6 +25,16 @@
 - **CVRP**: 각 고객의 수요(demand)를 싣고 배송할 때, 차량 용량(capacity)을 넘지 않도록 경로를 구성하는 최적화 문제
 - 본 프로젝트는 “모델 출력 → 회차 분할 → 도로 거리/시간 계산 → 지도 시각화”까지 **실사용 흐름에 가깝게 연결**했습니다.
 
+
+### 개발 정보
+- **기간**: 2025.09 ~ 2025.12
+- **인원**: 1명 (개인 프로젝트 · 모델 학습, 백엔드, 프론트엔드, 배포)
+
+### 배경
+- 배송지가 많아질수록 사람이 최적 경로를 직접 짜기 어렵고, 비효율은 시간·연료비·인건비 증가로 이어집니다.
+- 차량 용량 안에서 몇 회차로 나눌지까지 함께 고려해야 해 문제 난이도가 크게 올라갑니다.
+- CVRP는 NP-hard 문제로, 최근에는 Transformer/Pointer Network 같은 딥러닝 휴리스틱으로 빠르게 좋은 해를 찾는 연구가 활발합니다.
+
 ---
 
 ## 🎯 목표
@@ -126,7 +136,32 @@ Colab에서 다음 흐름으로 성능을 점검했습니다.
 - sorted distance plot (인스턴스별 거리 비교)
 - worst-case 디버그 출력(불필요 depot 방문 제거 확인)
 
-> 정확한 수치(평균 개선율 등)는 실험 로그에 맞춰 README에 추가하면 더 좋습니다.
+### 결과
+
+| 실험 | Baseline 평균 거리 | 모델 평균 거리 | 평균 개선율 |
+|---|---|---|---|
+| 초기 모델 (후처리 전) | 8.343 | 8.554 | **−2.65%** |
+| capacity-only repair + best-of-20 샘플링 | 8.494 | 7.857 | **+7.20%** |
+
+*거리: 정규화 좌표 기준 유클리드 거리 · 개선율: (Baseline − Model) / Baseline · 두 실험은 서로 다른 평가 인스턴스 묶음에서 측정*
+
+| 초기 모델 | repair + best-of-20 |
+|---|---|
+| <img src="docs/images/eval_initial.png" width="360"> | <img src="docs/images/eval_best20_repaired.png" width="360"> |
+
+### 문제와 해결
+- **문제**: 초기 모델은 창고(depot) 복귀를 불필요하게 반복 출력해, Baseline보다 평균 거리가 오히려 길었고 일부 인스턴스는 −60%까지 나빠졌습니다.
+- **해결 1 · capacity-only repair**: 모델 경로에서 고객 방문 순서만 추출하고, 적재량을 넘기는 순간에만 창고로 복귀하도록 후처리했습니다.
+- **해결 2 · best-of-20 샘플링**: sampling 디코딩으로 후보 20개를 만들고 그중 가장 짧은 경로를 선택했습니다.
+- **결과**: 평균 개선율이 −2.65% → **+7.20%** 로 바뀌었고, 극단적으로 나빠지는 케이스가 줄었습니다.
+
+---
+
+## 🖥️ 실행 화면
+
+<img src="docs/images/demo_map.png" width="800">
+
+회차별 경로를 지도 polyline으로 표시하고, 회차별 적재량·도로 거리·소요 시간을 표로 요약합니다.
 
 ---
 
@@ -178,20 +213,28 @@ Colab에서 다음 흐름으로 성능을 점검했습니다.
 ### 1) 의존성 설치
 ```bash
 pip install -r requirements.txt
+```
 
-
-## 환경 변수 설정
+### 2) 환경 변수 설정
+```bash
 # mac/linux
 export KAKAO_REST_API_KEY="YOUR_KEY"
 
 # windows powershell
 setx KAKAO_REST_API_KEY "YOUR_KEY"
+```
 
-##실행
+### 3) 실행
+```bash
 uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
+```
 접속: http://localhost:8000
 
-## 접속: http://localhost:8000)
+---
+
+## 📁 프로젝트 구조
+
+```text
 cvrp-road-demo/
 ├─ api/
 │  └─ app.py                 # FastAPI 서버 (geocode/solve/route)
@@ -201,6 +244,7 @@ cvrp-road-demo/
 ├─ web/
 │  └─ index.html             # Leaflet UI
 ├─ checkpoints/
-│  └─ best.pt                
+│  └─ best.pt
+├─ docs/images/              # README 이미지
 └─ README.md
-
+```
