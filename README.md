@@ -189,6 +189,25 @@ Colab에서 다음 흐름으로 성능을 점검했습니다.
 - OR-Tools 대비 gap은 **약 27~33% → 약 10%** 로 줄었습니다. D는 OR-Tools보다 약 10% 길지만 **15~20배 빠릅니다**.
 - 남은 약 10% gap은 모델 자체(짧은 학습: 3,000 step, 고객 20명 고정)의 한계로 보이며, 재학습이 다음 개선 대상입니다.
 
+### 도로 거리(OSRM) 기준 평가
+
+위 결과는 직선거리 기준입니다. 같은 인스턴스를 **OSRM 실제 도로 거리**로 다시 평가했습니다 (`--metric road`, Run-05·06).
+도로 거리는 일방통행 때문에 방향마다 다를 수 있어, 2-opt도 비대칭 거리를 반영합니다. NN·NN+2-opt·OR-Tools는 도로 거리 행렬로 직접 풉니다.
+도로 거리 행렬은 `results/road_cache/`에 캐시되어 있어 OSRM 호출 없이 같은 숫자를 재현할 수 있습니다.
+
+| 방법 | 고객 20명 평균 (NN 대비) | gap | 고객 50명 평균 (NN 대비) | gap |
+|---|---|---|---|---|
+| NN (도로 거리로 최근접) | 133.74 km | +28.9% | 273.91 km | +29.1% |
+| NN + 2-opt (도로 거리) | 127.57 km (+4.7%) | +22.8% | 262.13 km (+4.3%) | +23.4% |
+| A. 기존 데모 | 135.37 km (−1.6%) | +30.5% | 292.47 km (−7.2%) | +38.0% |
+| D. 현재 기본값 (직선거리로 선택) | 122.35 km (+8.2%) | +17.8% | 257.30 km (+5.9%) | +21.1% |
+| **E. D + 도로 거리로 후보 선택·2-opt** | **115.66 km (+13.3%)** | **+11.2%** | **240.33 km (+12.2%)** | **+13.0%** |
+| 참조: OR-Tools (도로 거리, GLS 1s / 2s) | 103.93 km (+22.0%) | 0% | 213.13 km (+22.2%) | 0% |
+
+- 직선거리로 고른 경로(D)는 도로에서 우위가 줄어듭니다 (gap 약 11% → 18~21%). 직선으로 가까워도 도로로는 돌아가는 경우가 많기 때문입니다.
+- 후보 선택과 2-opt만 도로 거리로 바꾼 E는 gap을 **11~13%로** 되돌립니다. 모델 입력(좌표)은 같고, 고르는 기준만 바뀝니다.
+- E의 NN 대비 승률은 94% / 99%, 최악 인스턴스는 −13.3% / −0.7%입니다.
+
 ---
 
 ## 🖥️ 실행 화면
@@ -270,6 +289,7 @@ uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
 pip install -r requirements-dev.txt   # pytest·ortools 등 개발/평가용
 python -m pytest -q
 python -m cvrp.eval_pipeline --instances 200 --customers 20 --samples 32 --note "무엇을 바꿨는지"
+python -m cvrp.eval_pipeline --metric road ...   # OSRM 도로 거리 기준 (캐시가 없으면 처음 한 번 OSRM 호출)
 python -m cvrp.runlog                 # 지금까지의 Run 기록 보기 (--eval-set n20, --method D 로 거르기)
 ```
 
@@ -294,10 +314,12 @@ cvrp-road-demo/
 │  ├─ eval_pipeline.py       # 단계별 효과 평가 스크립트 (→ results/runs.csv 기록)
 │  ├─ runlog.py              # Run 기록 저장·조회
 │  ├─ ortools_baseline.py    # OR-Tools 참조해 (평가 전용)
+│  ├─ road.py                # OSRM 도로 거리 행렬 + 캐시 (평가용)
 │  ├─ train_rl.py            # REINFORCE 학습
 │  └─ data.py                # 데이터 생성·route_length 등 유틸
 ├─ results/
-│  └─ runs.csv               # 평가 Run 기록
+│  ├─ runs.csv               # 평가 Run 기록
+│  └─ road_cache/            # 평가셋별 OSRM 도로 거리 행렬 캐시
 ├─ tests/                    # pytest (solver, runlog, API, OR-Tools)
 ├─ docs/                     # SPEC·STATE·HISTORY (작업 상태 기록)
 ├─ CLAUDE.md                 # Claude Code 작업 규칙
