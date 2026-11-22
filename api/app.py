@@ -14,6 +14,9 @@ from cvrp.model import CVRPModel
 from cvrp.solver import NORMALIZE_MODES, solve_instance
 
 MAX_SAMPLES = 128
+# 공개 데모라 요청 하나가 서버를 오래 붙잡지 않도록 상한을 둔다
+MAX_NODES = 101                    # 창고 1 + 고객 100
+MAX_SAMPLE_NODES = MAX_SAMPLES * 51  # n_samples × 지점 수 상한 (고객 50명이면 샘플 128까지)
 
 app = FastAPI(title="CVRP Solver API")
 
@@ -298,8 +301,12 @@ def solve(req: SolveRequest):
         return {"error": f"normalize must be one of {list(NORMALIZE_MODES)}"}
     if not (cap > 0):
         return {"error": "capacity must be > 0"}
+    if n > MAX_NODES:
+        return {"error": f"too many points: {n} (max {MAX_NODES}, depot included)"}
     if not (0 <= req.n_samples <= MAX_SAMPLES):
         return {"error": f"n_samples must be in [0, {MAX_SAMPLES}]"}
+    if req.n_samples * n > MAX_SAMPLE_NODES:
+        return {"error": f"n_samples × points too large (max {MAX_SAMPLE_NODES}); lower n_samples"}
 
     for i in range(1, n):
         if float(req.demands[i]) > cap:
