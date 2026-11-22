@@ -113,6 +113,18 @@ def test_solve_instance_is_feasible_and_deterministic(model):
     assert all(load <= cap for load in a["trip_loads"])
 
 
+def test_solve_instance_with_road_matrix_uses_it(model):
+    coords, demands, cap = _instance(seed=7)
+    n = len(coords)
+    rng = np.random.default_rng(7)
+    base = distance_matrix(to_planar(coords)) * 111.32
+    road = base * (1.2 + 0.3 * rng.random((n, n)))  # km, 비대칭
+    res = solve_instance(model, coords, demands, cap, n_samples=8, dist=road)
+    assert res["length"] == pytest.approx(trips_length(res["trips"], road))
+    assert res["stats"]["final_km"] == pytest.approx(res["length"])
+    assert sorted(c for t in res["trips"] for c in t if c) == list(range(1, n))
+
+
 def test_best_of_n_and_two_opt_never_worse_than_greedy(model):
     coords, demands, cap = _instance(seed=5)
     greedy = solve_instance(model, coords, demands, cap, n_samples=0, use_two_opt=False)
