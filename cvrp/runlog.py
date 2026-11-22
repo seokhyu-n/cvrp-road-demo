@@ -27,6 +27,7 @@ FIELDS = [
     "worst_pct",
     "ms_per_inst",
     "note",
+    "gap_ort_pct",  # OR-Tools 참조해 대비 (Run-03부터)
 ]
 
 _RUN_RE = re.compile(r"^Run-(\d+)$")
@@ -60,9 +61,25 @@ def git_commit(repo: Path) -> str:
         return "unknown"
 
 
+def _migrate_header(path: Path) -> None:
+    """기존 파일 헤더가 FIELDS와 다르면(새 컬럼 추가 등) 기존 행을 보존한 채 헤더를 맞춘다."""
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames == FIELDS:
+            return
+        old_rows = list(reader)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+        w.writeheader()
+        for r in old_rows:
+            w.writerow({k: r.get(k, "") for k in FIELDS})
+
+
 def append_run(path: Path, rows: Iterable[Dict], run_id: str, common: Dict) -> List[Dict]:
     """rows(방법별 결과)에 run_id·공통 정보를 붙여 CSV에 추가. 헤더는 새 파일일 때만 쓴다."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > 0:
+        _migrate_header(path)
     new_file = not path.exists() or path.stat().st_size == 0
     date = common.get("date") or datetime.now().strftime("%Y-%m-%d %H:%M")
     out = []
@@ -93,11 +110,13 @@ def show(path: Path, eval_set: str = "", method: str = "") -> None:
         if r["eval_set"] != cur_set:
             cur_set = r["eval_set"]
             print(f"\n== {cur_set} ==")
-            print(f"{'run':<8}{'commit':<15}{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>8}{'ms':>8}  note")
+            print(f"{'run':<8}{'commit':<15}{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>8}{'gap':>9}{'ms':>9}  note")
+        gap = r.get("gap_ort_pct") or ""
+        gap_s = f"{float(gap):+8.2f}%" if gap else f"{'-':>9}"
         print(
             f"{r['run_id']:<8}{r['git_commit']:<15}{r['method']:<28}{float(r['mean_km']):9.2f}"
             f"{float(r['vs_nn_pct']):+8.2f}%{float(r['win_pct']):6.0f}%{float(r['worst_pct']):+7.1f}%"
-            f"{float(r['ms_per_inst']):8.1f}  {r['note']}"
+            f"{gap_s}{float(r['ms_per_inst']):9.1f}  {r['note']}"
         )
 
 

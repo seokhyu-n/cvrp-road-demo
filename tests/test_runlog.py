@@ -34,6 +34,23 @@ def test_append_writes_header_once_and_keeps_korean_note(tmp_path):
     assert rows[0]["date"]  # 자동으로 채워짐
 
 
+def test_old_header_is_migrated_and_rows_kept(tmp_path):
+    p = tmp_path / "runs.csv"
+    old_fields = [f for f in FIELDS if f != "gap_ort_pct"]
+    with p.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=old_fields)
+        w.writeheader()
+        w.writerow({"run_id": "Run-01", "method": "NN", "note": "옛 기록"})
+
+    append_run(p, [{"method": "OR", "gap_ort_pct": 0.0}], "Run-02", {})
+
+    rows = _read(p)
+    assert list(rows[0].keys()) == FIELDS
+    assert rows[0]["note"] == "옛 기록" and rows[0]["gap_ort_pct"] == ""
+    assert rows[1]["gap_ort_pct"] == "0.0"
+    assert next_run_id(p) == "Run-03"
+
+
 def test_unknown_fields_are_ignored(tmp_path):
     p = tmp_path / "runs.csv"
     append_run(p, [{"method": "NN", "not_a_field": 1}], "Run-01", {})

@@ -1,0 +1,5 @@
+# 개발·평가용 (데모 서버 배포에는 requirements.txt만 필요)
+-r requirements.txt
+pytest
+httpx
+ortools

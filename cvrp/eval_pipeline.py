@@ -12,6 +12,10 @@
   B +norm       : depot 중앙 정규화 + greedy
   C +best-of-N  : B + sampling N개 중 최선
   D +2opt       : C + 회차별 2-opt (현재 데모 기본값)
+  OR-Tools      : Routing solver + Guided Local Search (시간 제한, 최적에 가까운 참조해)
+
+gap = 인스턴스별 (method - OR-Tools)/OR-Tools 평균. 0%에 가까울수록 참조해에 가깝다.
+OR-Tools는 평가 전용 의존성이다 (pip install -r requirements-dev.txt). 없으면 건너뛴다.
 
 usage:
   python -m cvrp.eval_pipeline --instances 200 --customers 20 --samples 32 --note "무엇을 바꿨는지"
@@ -67,6 +71,8 @@ def main():
     ap.add_argument("--note", default="", help="이번 Run에서 바꾼 것 (runs.csv에 기록)")
     ap.add_argument("--log", default=str(REPO / "results" / "runs.csv"))
     ap.add_argument("--no-log", action="store_true")
+    ap.add_argument("--ortools-time", type=float, default=1.0,
+                    help="OR-Tools 인스턴스당 시간 제한(초). 0이면 건너뜀")
     args = ap.parse_args()
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
@@ -83,8 +89,17 @@ def main():
         "D +2-opt (new default)": dict(normalize="depot_center", n_samples=S, use_two_opt=True),
     }
 
+    use_ort = args.ortools_time > 0
+    if use_ort:
+        try:
+            from cvrp.ortools_baseline import solve_ortools
+        except ImportError:
+            print("[WARN] ortools not installed → OR-Tools 비교를 건너뜁니다 (pip install -r requirements-dev.txt)")
+            use_ort = False
+    ort_name = f"OR-Tools (GLS {args.ortools_time:g}s)"
+
     rng = np.random.default_rng(args.seed)
-    lengths = {k: [] for k in ["NN", "NN+2opt", *variants]}
+    lengths = {k: [] for k in ["NN", "NN+2opt", *variants, *([ort_name] if use_ort else [])]}
     times = {k: 0.0 for k in lengths}
 
     for i in range(args.instances):
@@ -108,6 +123,12 @@ def main():
             times[name] += time.perf_counter() - t0
             lengths[name].append(res["length"])
 
+        if use_ort:
+            t0 = time.perf_counter()
+            ort = solve_ortools(dist, demands, cap, time_limit_s=args.ortools_time)
+            times[ort_name] += time.perf_counter() - t0
+            lengths[ort_name].append(trips_length(ort, dist))
+
     nn_arr = np.array(lengths["NN"])
     settings = {
         "NN": dict(normalize="", n_samples="", two_opt=False),
@@ -116,7 +137,9 @@ def main():
             k: dict(normalize=v["normalize"], n_samples=v["n_samples"], two_opt=v["use_two_opt"])
             for k, v in variants.items()
         },
+        ort_name: dict(normalize="", n_samples="", two_opt=False),
     }
+    ort_arr = np.array(lengths[ort_name]) if use_ort else None
     rows = []
     for name, vals in lengths.items():
         v = np.array(vals)
@@ -129,17 +152,21 @@ def main():
             "win_pct": round(float((imp > 0).mean() * 100), 1),
             "worst_pct": round(float(imp.min()), 1),
             "ms_per_inst": round(times[name] / args.instances * 1000, 2),
+            "gap_ort_pct": round(float(((v - ort_arr) / ort_arr * 100).mean()), 2) if use_ort else "",
         })
 
     eset = eval_set_id(args.instances, args.customers, args.seed)
     print(f"\neval_set={eset}  samples={S}")
-    print(f"{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>9}{'ms/inst':>9}")
+    print(f"{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>9}{'gap':>9}{'ms/inst':>10}")
     for r in rows:
+        gap = f"{r['gap_ort_pct']:+8.2f}%" if use_ort else f"{'-':>9}"
         print(
             f"{r['method']:<28}{r['mean_km']:9.2f}{r['vs_nn_pct']:+8.2f}%"
-            f"{r['win_pct']:6.0f}%{r['worst_pct']:+8.1f}%{r['ms_per_inst']:9.2f}"
+            f"{r['win_pct']:6.0f}%{r['worst_pct']:+8.1f}%{gap}{r['ms_per_inst']:10.2f}"
         )
     print("\nvs NN = 인스턴스별 (NN - method)/NN 평균, win% = NN보다 짧았던 비율, worst = 가장 나빴던 인스턴스")
+    if use_ort:
+        print("gap = 인스턴스별 (method - OR-Tools)/OR-Tools 평균 (0%에 가까울수록 좋음)")
 
     if not args.no_log:
         log = Path(args.log)
