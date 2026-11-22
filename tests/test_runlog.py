@@ -51,6 +51,30 @@ def test_old_header_is_migrated_and_rows_kept(tmp_path):
     assert next_run_id(p) == "Run-03"
 
 
+def test_git_commit_ignores_changes_to_run_log(tmp_path):
+    import subprocess
+
+    from cvrp.runlog import git_commit
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "runs.csv").write_text("a\n")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+
+    (tmp_path / "results" / "runs.csv").write_text("a\nb\n")
+    assert not git_commit(tmp_path).endswith("-dirty")
+
+    (tmp_path / "code.py").write_text("x = 2\n")
+    assert git_commit(tmp_path).endswith("-dirty")
+
+
 def test_unknown_fields_are_ignored(tmp_path):
     p = tmp_path / "runs.csv"
     append_run(p, [{"method": "NN", "not_a_field": 1}], "Run-01", {})

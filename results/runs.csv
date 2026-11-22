@@ -1,13 +1,27 @@
-﻿run_id,date,git_commit,ckpt,eval_set,method,normalize,n_samples,two_opt,mean_km,vs_nn_pct,win_pct,worst_pct,ms_per_inst,note
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,NN,,,False,85.89,0.0,0.0,0.0,0.07,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,NN+2opt,,,True,82.95,3.54,95.0,0.0,0.14,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,A legacy (minmax+greedy),minmax,0,False,85.18,0.4,50.5,-38.5,15.9,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,B +depot-center norm,depot_center,0,False,82.37,3.52,64.5,-21.4,16.03,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,C +best-of-32,depot_center,32,False,76.76,10.24,86.5,-13.0,50.78,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,D +2-opt (new default),depot_center,32,True,74.42,13.15,92.5,-7.9,52.91,기준 Run: 정규화·best-of-32·2-opt 단계별 비교
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,NN,,,False,172.37,0.0,0.0,0.0,0.28,기준 Run: 학습 범위 밖(50명) 일반화 확인
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,NN+2opt,,,True,167.16,3.12,100.0,0.6,0.46,기준 Run: 학습 범위 밖(50명) 일반화 확인
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,A legacy (minmax+greedy),minmax,0,False,177.11,-3.27,35.0,-32.9,35.74,기준 Run: 학습 범위 밖(50명) 일반화 확인
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,B +depot-center norm,depot_center,0,False,166.72,2.77,63.0,-18.1,34.87,기준 Run: 학습 범위 밖(50명) 일반화 확인
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,C +best-of-32,depot_center,32,False,155.57,9.4,92.0,-11.2,124.67,기준 Run: 학습 범위 밖(50명) 일반화 확인
-Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,D +2-opt (new default),depot_center,32,True,147.8,14.27,99.0,-2.4,131.63,기준 Run: 학습 범위 밖(50명) 일반화 확인
+﻿run_id,date,git_commit,ckpt,eval_set,method,normalize,n_samples,two_opt,mean_km,vs_nn_pct,win_pct,worst_pct,ms_per_inst,note,gap_ort_pct
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,NN,,,False,85.89,0.0,0.0,0.0,0.07,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,NN+2opt,,,True,82.95,3.54,95.0,0.0,0.14,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,A legacy (minmax+greedy),minmax,0,False,85.18,0.4,50.5,-38.5,15.9,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,B +depot-center norm,depot_center,0,False,82.37,3.52,64.5,-21.4,16.03,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,C +best-of-32,depot_center,32,False,76.76,10.24,86.5,-13.0,50.78,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-01,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n20-x200-s1234,D +2-opt (new default),depot_center,32,True,74.42,13.15,92.5,-7.9,52.91,기준 Run: 정규화·best-of-32·2-opt 단계별 비교,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,NN,,,False,172.37,0.0,0.0,0.0,0.28,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,NN+2opt,,,True,167.16,3.12,100.0,0.6,0.46,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,A legacy (minmax+greedy),minmax,0,False,177.11,-3.27,35.0,-32.9,35.74,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,B +depot-center norm,depot_center,0,False,166.72,2.77,63.0,-18.1,34.87,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,C +best-of-32,depot_center,32,False,155.57,9.4,92.0,-11.2,124.67,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-02,2026-11-22 16:42,d044b0c-dirty,best.pt,seoul11km-n50-x100-s1234,D +2-opt (new default),depot_center,32,True,147.8,14.27,99.0,-2.4,131.63,기준 Run: 학습 범위 밖(50명) 일반화 확인,
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,NN,,,False,85.89,0.0,0.0,0.0,0.06,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",28.54
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,NN+2opt,,,True,82.95,3.54,95.0,0.0,0.12,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",23.91
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,A legacy (minmax+greedy),minmax,0,False,85.18,0.4,50.5,-38.5,18.47,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",27.27
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,B +depot-center norm,depot_center,0,False,82.37,3.52,64.5,-21.4,17.22,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",23.34
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,C +best-of-32,depot_center,32,False,76.76,10.24,86.5,-13.0,51.97,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",14.6
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,D +2-opt (new default),depot_center,32,True,74.42,13.15,92.5,-7.9,53.87,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",10.89
+Run-03,2026-11-22 16:54,b44c587,best.pt,seoul11km-n20-x200-s1234,OR-Tools (GLS 1s),,,False,67.02,21.56,100.0,2.5,1001.56,"OR-Tools(GLS 1s) 참조해 추가, gap 측정",0.0
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,NN,,,False,172.37,0.0,0.0,0.0,0.22,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",28.97
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,NN+2opt,,,True,167.16,3.12,100.0,0.6,0.36,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",24.87
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,A legacy (minmax+greedy),minmax,0,False,177.11,-3.27,35.0,-32.9,42.58,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",32.63
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,B +depot-center norm,depot_center,0,False,166.72,2.77,63.0,-18.1,36.29,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",24.89
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,C +best-of-32,depot_center,32,False,155.57,9.4,92.0,-11.2,125.62,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",16.36
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,D +2-opt (new default),depot_center,32,True,147.8,14.27,99.0,-2.4,135.55,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",10.09
+Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,OR-Tools (GLS 2s),,,False,134.18,22.0,100.0,9.5,2002.0,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",0.0

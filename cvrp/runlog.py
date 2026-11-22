@@ -45,15 +45,19 @@ def next_run_id(path: Path) -> str:
     return f"Run-{last + 1:02d}"
 
 
-def git_commit(repo: Path) -> str:
-    """현재 커밋 short hash. 커밋 안 된 변경이 있으면 '-dirty'를 붙인다."""
+def git_commit(repo: Path, ignore: Iterable[str] = ("results/runs.csv",)) -> str:
+    """
+    현재 커밋 short hash. 커밋 안 된 변경이 있으면 '-dirty'를 붙인다.
+    기록 파일 자체(runs.csv)는 Run마다 바뀌므로 dirty 판정에서 뺀다.
+    """
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=repo, capture_output=True, text=True, check=True,
         ).stdout.strip()
+        excludes = [f":(exclude){p}" for p in ignore]
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain", "--untracked-files=no", "--", ".", *excludes],
             cwd=repo, capture_output=True, text=True, check=True,
         ).stdout.strip()
         return sha + ("-dirty" if dirty else "")
@@ -105,6 +109,8 @@ def show(path: Path, eval_set: str = "", method: str = "") -> None:
             r for r in csv.DictReader(f)
             if eval_set in r["eval_set"] and method in r["method"]
         ]
+    # 평가셋별로 묶고, 그 안에서는 기록 순서 유지 (sort는 안정 정렬)
+    rows.sort(key=lambda r: r["eval_set"])
     cur_set = None
     for r in rows:
         if r["eval_set"] != cur_set:
