@@ -44,4 +44,6 @@ served by FastAPI (`api/app.py`) with a Leaflet UI (`web/index.html`), deployed 
 - If goals or done criteria change, update `docs/SPEC.md`.
 - When a task is finished, prepend an entry to `docs/HISTORY.md` (date · 한 일 · 결정 · 다음 할 일).
   Do not import HISTORY.md with @; read it only when needed.
+- `docs/NEXT_STEPS.md` holds the detailed improvement plan, background notes, and environment pitfalls.
+  Read it when starting any item from "다음 할 일".
 - Write these docs in Korean.
