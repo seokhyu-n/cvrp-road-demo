@@ -49,7 +49,8 @@
       <input id="q" placeholder="예: 서울역, 평택대학교, CU 편의점"/>
       <button id="searchBtn">Search</button>
       <button id="resetBtn">Reset</button>
-      <small>첫 번째로 추가된 지점이 창고(depot)입니다.</small>
+      물류량 <input id="newDemand" type="number" min="1" value="1" style="width:70px;"/>
+      <small>첫 번째로 추가된 지점이 창고(depot)이고, 이후 고객은 이 물류량으로 추가됩니다.</small>
     </div>
 
     <div id="results" class="results" style="display:none;"></div>
@@ -91,7 +92,7 @@
             <tbody></tbody>
           </table>
         </div>
-        <small>고객 마커를 클릭하면 물류량(demand)을 수정할 수 있어요.</small>
+        <small>표의 물류량 칸에서 바로 수정할 수 있어요.</small>
       </div>
 
       <div class="box">
@@ -208,13 +209,23 @@
         tr.innerHTML = `
           <td>${idx}</td>
           <td>${type}</td>
-          <td>${idx === 0 ? 0 : s.demand}</td>
+          <td>${idx === 0 ? 0 : `<input type="number" min="1" step="1" value="${s.demand}" data-dem="${idx}" style="width:60px;"/>`}</td>
           <td title="${s.name}">${(s.name || "").slice(0, 28)}${(s.name||"").length>28?"…":""}</td>
           <td>
             ${idx === 0 ? "" : `<button data-del="${idx}">삭제</button>`}
           </td>
         `;
         tbody.appendChild(tr);
+      });
+
+      tbody.querySelectorAll("input[data-dem]").forEach(inp => {
+        inp.onchange = () => {
+          const i = parseInt(inp.getAttribute("data-dem"), 10);
+          const nd = parseDemand(inp.value, stops[i].demand);
+          stops[i].demand = nd;
+          inp.value = nd;
+          markers[i].bindPopup(`고객${i} (demand=${nd}) : ${stops[i].name}`);
+        };
       });
 
       tbody.querySelectorAll("button[data-del]").forEach(btn => {
@@ -240,35 +251,20 @@
       });
     }
 
+    // prompt()는 일부 내장 브라우저(Electron 등)에서 지원되지 않아 쓰지 않는다
+    function parseDemand(v, fallback){
+      const n = parseInt(v, 10);
+      return Number.isFinite(n) && n >= 1 ? n : fallback;
+    }
+
     function addStop(lat, lng, name){
       const idx = stops.length;
-      let demand = 0;
-
-      if(idx === 0){
-        demand = 0; // depot
-      } else {
-        const v = prompt(`"${name}" 물류 개수(demand)를 입력해주세요. (예: 1~20)`, "1");
-        demand = Math.max(1, parseInt(v || "1", 10));
-      }
+      const demand = (idx === 0) ? 0 : parseDemand(document.getElementById("newDemand").value, 1);
 
       stops.push({lat, lng, demand, name});
 
       const label = (idx === 0) ? `창고(0): ${name}` : `고객${idx} (demand=${demand}) : ${name}`;
       const m = L.marker([lat, lng]).addTo(map).bindPopup(label);
-
-      // 클릭하면 demand 수정
-      m.on('click', () => {
-        const curIdx = markers.indexOf(m);
-        if(curIdx <= 0) return;
-
-        const nv = prompt(`고객${curIdx} 물류량 수정`, String(stops[curIdx].demand));
-        const nd = Math.max(1, parseInt(nv || String(stops[curIdx].demand), 10));
-        stops[curIdx].demand = nd;
-
-        const nm = stops[curIdx].name;
-        m.bindPopup(`고객${curIdx} (demand=${nd}) : ${nm}`);
-        renderStops();
-      });
 
       markers.push(m);
       renderStops();
