@@ -27,15 +27,20 @@ def fetch_osrm_table(
     base_url: str = OSRM_URL,
     timeout: float = 30.0,
     retries: int = 3,
+    min_interval: float = MIN_INTERVAL_S,
 ) -> Tuple[np.ndarray, np.ndarray]:
-    """[lat, lng] 목록 → (거리 m, 시간 s) 행렬. 실패하면 재시도 후 예외."""
+    """
+    [lat, lng] 목록 → (거리 m, 시간 s) 행렬. 실패하면 재시도 후 예외.
+    평가 스크립트는 기본값(초당 1회, 3회 시도)을, 데모 서버는 사용자 요청마다
+    한 번만 부르므로 retries=1, min_interval=0 과 짧은 timeout을 쓴다.
+    """
     global _last_call
     coord_str = ";".join(f"{lng:.6f},{lat:.6f}" for lat, lng in coords_latlng)
     url = f"{base_url}/table/v1/driving/{coord_str}?annotations=distance,duration"
 
     last_err: Optional[Exception] = None
     for attempt in range(retries):
-        wait = MIN_INTERVAL_S - (time.monotonic() - _last_call)
+        wait = min_interval - (time.monotonic() - _last_call)
         if wait > 0:
             time.sleep(wait)
         _last_call = time.monotonic()
@@ -52,7 +57,8 @@ def fetch_osrm_table(
             return dist, dur
         except Exception as e:  # 네트워크·429 등 → 잠시 쉬고 재시도
             last_err = e
-            time.sleep(2.0 * (attempt + 1))
+            if attempt + 1 < retries:
+                time.sleep(2.0 * (attempt + 1))
     raise RuntimeError(f"OSRM table failed after {retries} tries: {last_err}")
 
 

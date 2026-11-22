@@ -67,6 +67,7 @@
       <b>탐색 옵션</b>
       샘플 수 <input id="nSamples" type="number" min="0" max="128" value="32" style="width:70px;"/>
       <label><input id="twoOpt" type="checkbox" checked/> 2-opt 후처리</label>
+      <label><input id="roadMetric" type="checkbox" checked/> 도로 거리로 최적화</label>
       <small>샘플 수 0 = greedy 1회. 샘플을 늘리면 후보가 많아져 경로가 더 짧아질 수 있어요.</small>
     </div>
     <div id="solveStats" style="margin:4px 0; font-size:14px;"></div>
@@ -443,7 +444,8 @@
         const nSamplesRaw = parseInt(document.getElementById("nSamples").value, 10);
         const n_samples = Number.isFinite(nSamplesRaw) ? Math.max(0, Math.min(128, nSamplesRaw)) : 32;
         const two_opt = document.getElementById("twoOpt").checked;
-        const payload = { coords, demands, capacity, n_samples, two_opt };
+        const metric = document.getElementById("roadMetric").checked ? "road" : "straight";
+        const payload = { coords, demands, capacity, n_samples, two_opt, metric };
         const res = await fetch("/solve", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
@@ -473,8 +475,11 @@
         if(sol.stats){
           const st = sol.stats;
           const pct = (a, b) => (a > 0 ? ((a - b) / a * 100).toFixed(1) : "0.0");
+          const usedRoad = sol.settings && sol.settings.metric_used === "road";
+          const label = usedRoad ? "단계별 도로 거리" : "단계별 직선거리(근사)";
+          const fallback = sol.road_fallback ? ` <small class="warn">(도로 거리를 못 받아 직선거리로 계산)</small>` : "";
           document.getElementById("solveStats").innerHTML =
-            `<b>단계별 직선거리(근사)</b>: greedy ${st.greedy_km.toFixed(2)} km` +
+            `<b>${label}</b>${fallback}: greedy ${st.greedy_km.toFixed(2)} km` +
             ` → best-of-${sol.n_candidates} ${st.best_of_n_km.toFixed(2)} km` +
             ` → 최종${sol.settings && sol.settings.two_opt ? "(2-opt)" : ""} <b>${st.final_km.toFixed(2)} km</b>` +
             ` (greedy 대비 −${pct(st.greedy_km, st.final_km)}%)`;
