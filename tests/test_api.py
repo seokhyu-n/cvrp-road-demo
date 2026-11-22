@@ -74,8 +74,9 @@ def test_road_falls_back_to_straight_when_osrm_fails(monkeypatch):
 
 
 def test_rejects_unknown_metric():
-    r = client.post("/solve", json={**_payload(5), "metric": "manhattan"}).json()
-    assert "metric must be" in r["error"]
+    resp = client.post("/solve", json={**_payload(5), "metric": "manhattan"})
+    assert resp.status_code == 400
+    assert "metric must be" in resp.json()["error"]
 
 
 def test_greedy_decode_is_backward_compatible():
@@ -83,16 +84,34 @@ def test_greedy_decode_is_backward_compatible():
     assert client.post("/solve", json=body).json()["settings"]["n_samples"] == 0
 
 
+def _bad(body, expect):
+    resp = client.post("/solve", json=body)
+    assert resp.status_code == 400
+    assert expect in resp.json()["error"]
+
+
 def test_rejects_too_many_points():
-    r = client.post("/solve", json=_payload(app_module.MAX_NODES, n_samples=0)).json()
-    assert "too many points" in r["error"]
+    _bad(_payload(app_module.MAX_NODES, n_samples=0), "too many points")
 
 
 def test_rejects_large_samples_times_points():
-    r = client.post("/solve", json=_payload(100, n_samples=app_module.MAX_SAMPLES)).json()
-    assert "n_samples × points" in r["error"]
+    _bad(_payload(100, n_samples=app_module.MAX_SAMPLES), "n_samples × points")
 
 
 def test_rejects_out_of_range_samples():
-    r = client.post("/solve", json=_payload(5, n_samples=app_module.MAX_SAMPLES + 1)).json()
-    assert "n_samples must be" in r["error"]
+    _bad(_payload(5, n_samples=app_module.MAX_SAMPLES + 1), "n_samples must be")
+
+
+def test_rejects_demand_over_capacity():
+    body = _payload(3)
+    body["demands"][2] = 99
+    _bad(body, "> capacity")
+
+
+def test_ok_response_is_200():
+    assert client.post("/solve", json=_payload(5)).status_code == 200
+
+
+def test_no_cors_headers_by_default():
+    resp = client.post("/solve", json=_payload(3), headers={"Origin": "https://evil.example"})
+    assert "access-control-allow-origin" not in resp.headers

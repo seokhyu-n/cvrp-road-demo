@@ -11,6 +11,9 @@
     .panel { padding: 12px; }
     .row { margin: 8px 0; display:flex; gap:8px; flex-wrap: wrap; align-items:center; }
     input { width: 260px; padding:6px; }
+    input[type="checkbox"] { width:auto; padding:0; margin:0 4px 0 0; vertical-align: middle; }
+    label { white-space: nowrap; }
+    details > summary { cursor:pointer; color:#555; font-size: 13px; margin-top: 10px; }
     button { padding: 6px 10px; cursor: pointer; }
     small { color:#555; }
     .results { max-height: 150px; overflow:auto; background:#f7f7f7; padding:8px; border:1px solid #ddd; }
@@ -113,7 +116,10 @@
       </div>
     </div>
 
-    <pre id="out" class="mono" style="margin-top:10px;"></pre>
+    <details>
+      <summary>응답 JSON 보기 (디버그)</summary>
+      <pre id="out" class="mono" style="margin-top:6px;"></pre>
+    </details>
   </div>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -297,7 +303,7 @@
       });
 
       if((data.results || []).length === 0){
-        box.innerHTML = "<div>검색 결과 없음</div>";
+        box.innerHTML = data.error ? "<div>검색 실패: 잠시 후 다시 시도해 주세요.</div>" : "<div>검색 결과 없음</div>";
       }
     };
 
