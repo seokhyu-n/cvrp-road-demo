@@ -62,6 +62,14 @@
       <small>각 고객 demand 합이 capacity를 넘으면 자동으로 회차(trip) 분할됩니다.</small>
     </div>
 
+    <div class="row">
+      <b>탐색 옵션</b>
+      샘플 수 <input id="nSamples" type="number" min="0" max="128" value="32" style="width:70px;"/>
+      <label><input id="twoOpt" type="checkbox" checked/> 2-opt 후처리</label>
+      <small>샘플 수 0 = greedy 1회. 샘플을 늘리면 후보가 많아져 경로가 더 짧아질 수 있어요.</small>
+    </div>
+    <div id="solveStats" style="margin:4px 0; font-size:14px;"></div>
+
     <!-- ✅ 비교 결과 박스 -->
     <div class="box" style="margin:10px 0;">
       <b>AI vs Baseline 비교</b>
@@ -178,6 +186,7 @@
 
       document.getElementById("out").textContent = "";
       document.getElementById("totals").textContent = "";
+      document.getElementById("solveStats").textContent = "";
       document.getElementById("compareSummary").textContent = "아직 비교 전입니다. (먼저 Solve를 누른 뒤 Baseline 비교를 누르면 좋아요)";
       document.querySelector("#stopsTable tbody").innerHTML = "";
       document.querySelector("#tripTable tbody").innerHTML = "";
@@ -435,7 +444,10 @@
           }
         }
 
-        const payload = { coords, demands, capacity, decode: "greedy" };
+        const nSamplesRaw = parseInt(document.getElementById("nSamples").value, 10);
+        const n_samples = Number.isFinite(nSamplesRaw) ? Math.max(0, Math.min(128, nSamplesRaw)) : 32;
+        const two_opt = document.getElementById("twoOpt").checked;
+        const payload = { coords, demands, capacity, n_samples, two_opt };
         const res = await fetch("/solve", {
           method: "POST",
           headers: {"Content-Type":"application/json"},
@@ -460,6 +472,16 @@
         if(!Array.isArray(sol.trips)){
           alert("solve 결과에 trips가 없음. out 창 확인!");
           return;
+        }
+
+        if(sol.stats){
+          const st = sol.stats;
+          const pct = (a, b) => (a > 0 ? ((a - b) / a * 100).toFixed(1) : "0.0");
+          document.getElementById("solveStats").innerHTML =
+            `<b>단계별 직선거리(근사)</b>: greedy ${st.greedy_km.toFixed(2)} km` +
+            ` → best-of-${sol.n_candidates} ${st.best_of_n_km.toFixed(2)} km` +
+            ` → 최종${sol.settings && sol.settings.two_opt ? "(2-opt)" : ""} <b>${st.final_km.toFixed(2)} km</b>` +
+            ` (greedy 대비 −${pct(st.greedy_km, st.final_km)}%)`;
         }
 
         // clear lines/tables
