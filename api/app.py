@@ -170,6 +170,10 @@ def _dedup_results(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
 # Model load
 # -----------------------------
 device = "cuda" if torch.cuda.is_available() else "cpu"
+
+# Render 무료 인스턴스처럼 CPU가 일부만 할당된 컨테이너에서 PyTorch가 호스트 코어 수만큼
+# 스레드를 띄우면 서로 경합해 크게 느려진다. 기본 1, TORCH_NUM_THREADS로 조정.
+torch.set_num_threads(max(1, int(os.environ.get("TORCH_NUM_THREADS", "1"))))
 MODEL_PATH = os.environ.get("CVRP_MODEL", str(DEFAULT_MODEL_PATH))
 
 model: Optional[CVRPModel] = None
@@ -203,7 +207,7 @@ def health():
         "commit": os.environ.get("RENDER_GIT_COMMIT"),
         "geocoder": "kakao" if key else "nominatim_fallback",
         "kakao_key_loaded": bool(key),
-        "kakao_key_len": len(key),
+        "torch_threads": torch.get_num_threads(),
     }
 
 

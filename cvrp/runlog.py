@@ -27,6 +27,7 @@ FIELDS = [
     "worst_pct",
     "ms_per_inst",
     "note",
+    "gap_ort_pct",  # OR-Tools 참조해 대비 (Run-03부터)
 ]
 
 _RUN_RE = re.compile(r"^Run-(\d+)$")
@@ -44,15 +45,19 @@ def next_run_id(path: Path) -> str:
     return f"Run-{last + 1:02d}"
 
 
-def git_commit(repo: Path) -> str:
-    """현재 커밋 short hash. 커밋 안 된 변경이 있으면 '-dirty'를 붙인다."""
+def git_commit(repo: Path, ignore: Iterable[str] = ("results/runs.csv",)) -> str:
+    """
+    현재 커밋 short hash. 커밋 안 된 변경이 있으면 '-dirty'를 붙인다.
+    기록 파일 자체(runs.csv)는 Run마다 바뀌므로 dirty 판정에서 뺀다.
+    """
     try:
         sha = subprocess.run(
             ["git", "rev-parse", "--short", "HEAD"],
             cwd=repo, capture_output=True, text=True, check=True,
         ).stdout.strip()
+        excludes = [f":(exclude){p}" for p in ignore]
         dirty = subprocess.run(
-            ["git", "status", "--porcelain", "--untracked-files=no"],
+            ["git", "status", "--porcelain", "--untracked-files=no", "--", ".", *excludes],
             cwd=repo, capture_output=True, text=True, check=True,
         ).stdout.strip()
         return sha + ("-dirty" if dirty else "")
@@ -60,9 +65,25 @@ def git_commit(repo: Path) -> str:
         return "unknown"
 
 
+def _migrate_header(path: Path) -> None:
+    """기존 파일 헤더가 FIELDS와 다르면(새 컬럼 추가 등) 기존 행을 보존한 채 헤더를 맞춘다."""
+    with path.open(encoding="utf-8-sig", newline="") as f:
+        reader = csv.DictReader(f)
+        if reader.fieldnames == FIELDS:
+            return
+        old_rows = list(reader)
+    with path.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=FIELDS, extrasaction="ignore")
+        w.writeheader()
+        for r in old_rows:
+            w.writerow({k: r.get(k, "") for k in FIELDS})
+
+
 def append_run(path: Path, rows: Iterable[Dict], run_id: str, common: Dict) -> List[Dict]:
     """rows(방법별 결과)에 run_id·공통 정보를 붙여 CSV에 추가. 헤더는 새 파일일 때만 쓴다."""
     path.parent.mkdir(parents=True, exist_ok=True)
+    if path.exists() and path.stat().st_size > 0:
+        _migrate_header(path)
     new_file = not path.exists() or path.stat().st_size == 0
     date = common.get("date") or datetime.now().strftime("%Y-%m-%d %H:%M")
     out = []
@@ -88,16 +109,20 @@ def show(path: Path, eval_set: str = "", method: str = "") -> None:
             r for r in csv.DictReader(f)
             if eval_set in r["eval_set"] and method in r["method"]
         ]
+    # 평가셋별로 묶고, 그 안에서는 기록 순서 유지 (sort는 안정 정렬)
+    rows.sort(key=lambda r: r["eval_set"])
     cur_set = None
     for r in rows:
         if r["eval_set"] != cur_set:
             cur_set = r["eval_set"]
             print(f"\n== {cur_set} ==")
-            print(f"{'run':<8}{'commit':<15}{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>8}{'ms':>8}  note")
+            print(f"{'run':<8}{'commit':<15}{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>8}{'gap':>9}{'ms':>9}  note")
+        gap = r.get("gap_ort_pct") or ""
+        gap_s = f"{float(gap):+8.2f}%" if gap else f"{'-':>9}"
         print(
             f"{r['run_id']:<8}{r['git_commit']:<15}{r['method']:<28}{float(r['mean_km']):9.2f}"
             f"{float(r['vs_nn_pct']):+8.2f}%{float(r['win_pct']):6.0f}%{float(r['worst_pct']):+7.1f}%"
-            f"{float(r['ms_per_inst']):8.1f}  {r['note']}"
+            f"{gap_s}{float(r['ms_per_inst']):9.1f}  {r['note']}"
         )
 
 

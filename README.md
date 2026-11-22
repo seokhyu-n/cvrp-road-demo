@@ -163,22 +163,31 @@ Colab에서 다음 흐름으로 성능을 점검했습니다.
 
 ### 추론 파이프라인 개선 (2026.11)
 
-`python -m cvrp.eval_pipeline` 로 재현할 수 있고, 아래 숫자는 `results/runs.csv`의 Run-01(20명)·Run-02(50명)입니다. 서울 근처 약 11km × 11km 영역에 창고를 임의 위치에 둔 위경도 인스턴스를 만들고,
-cos(위도) 보정 직선거리(km 근사)로 비교했습니다. 같은 체크포인트(`best.pt`)이며 재학습은 하지 않았습니다.
+`python -m cvrp.eval_pipeline` 로 재현할 수 있고, 아래 숫자는 `results/runs.csv`의 **Run-03(20명)·Run-04(50명)** 입니다.
+서울 근처 약 11km × 11km 영역에 창고를 임의 위치에 둔 위경도 인스턴스를 만들고, cos(위도) 보정 직선거리(km 근사)로 비교했습니다.
+같은 체크포인트(`best.pt`)이며 재학습은 하지 않았습니다. 참조해는 **OR-Tools**(Routing solver + Guided Local Search, 인스턴스당 1초 / 2초)입니다.
 
-| 방법 | 고객 20명 (200개) | 고객 50명 (100개) |
+| 방법 | 고객 20명 (200개) | | 고객 50명 (100개) | |
+|---|---|---|---|---|
+| | **평균 거리 (NN 대비)** | **OR-Tools 대비 gap** | **평균 거리 (NN 대비)** | **OR-Tools 대비 gap** |
+| Baseline: Nearest Neighbor | 85.89 km | +28.5% | 172.37 km | +29.0% |
+| Baseline: NN + 2-opt | 82.95 km (+3.5%) | +23.9% | 167.16 km (+3.1%) | +24.9% |
+| A. 기존 데모 (min-max 정규화 + greedy) | 85.18 km (+0.4%) | +27.3% | 177.11 km (−3.3%) | +32.6% |
+| B. + 창고 중앙 정규화 | 82.37 km (+3.5%) | +23.3% | 166.72 km (+2.8%) | +24.9% |
+| C. + best-of-32 샘플링 | 76.76 km (+10.2%) | +14.6% | 155.57 km (+9.4%) | +16.4% |
+| **D. + 회차별 2-opt (현재 기본값)** | **74.42 km (+13.2%)** | **+10.9%** | **147.80 km (+14.3%)** | **+10.1%** |
+| 참조: OR-Tools (GLS 1s / 2s) | 67.02 km (+21.6%) | 0% | 134.18 km (+22.0%) | 0% |
+
+*NN 대비 = 인스턴스별 평균 개선율 · gap = 인스턴스별 (방법 − OR-Tools) / OR-Tools 평균 · D의 NN 대비 승률 92% / 99%, 최악 인스턴스 −7.9% / −2.4% (기존 −38.5% / −32.9%)*
+
+| 처리 시간 (로컬 CPU, 인스턴스당) | 고객 20명 | 고객 50명 |
 |---|---|---|
-| Baseline: Nearest Neighbor | 85.89 km | 172.37 km |
-| Baseline: NN + 2-opt | 82.95 km (+3.5%) | 167.16 km (+3.1%) |
-| A. 기존 데모 (min-max 정규화 + greedy) | 85.18 km (+0.4%) | 177.11 km (−3.3%) |
-| B. + 창고 중앙 정규화 | 82.37 km (+3.5%) | 166.72 km (+2.8%) |
-| C. + best-of-32 샘플링 | 76.76 km (+10.2%) | 155.57 km (+9.4%) |
-| **D. + 회차별 2-opt (현재 기본값)** | **74.42 km (+13.2%)** | **147.80 km (+14.3%)** |
-
-*괄호 = NN 대비 인스턴스별 평균 개선율 · D의 NN 대비 승률 92% / 99%, 최악 인스턴스 −7.9% / −2.4% (기존 −38.5% / −32.9%) · CPU 기준 인스턴스당 약 50ms / 130ms*
+| D (현재 기본값) | 약 54ms | 약 136ms |
+| OR-Tools | 1,000ms (시간 제한) | 2,000ms (시간 제한) |
 
 - 정규화만 고쳐도 고객 50명(학습 범위 밖)에서 기존 데모가 NN보다 **나빴던 것(−3.3%)이 개선(+2.8%)으로** 바뀌었습니다.
-- 같은 2-opt를 적용한 NN(+2-opt)과 비교해도 D가 약 10% 짧습니다.
+- OR-Tools 대비 gap은 **약 27~33% → 약 10%** 로 줄었습니다. D는 OR-Tools보다 약 10% 길지만 **15~20배 빠릅니다**.
+- 남은 약 10% gap은 모델 자체(짧은 학습: 3,000 step, 고객 20명 고정)의 한계로 보이며, 재학습이 다음 개선 대상입니다.
 
 ---
 
@@ -258,7 +267,7 @@ uvicorn api.app:app --host 0.0.0.0 --port 8000 --reload
 
 ### 4) 테스트 / 평가
 ```bash
-pip install pytest
+pip install -r requirements-dev.txt   # pytest·ortools 등 개발/평가용
 python -m pytest -q
 python -m cvrp.eval_pipeline --instances 200 --customers 20 --samples 32 --note "무엇을 바꿨는지"
 python -m cvrp.runlog                 # 지금까지의 Run 기록 보기 (--eval-set n20, --method D 로 거르기)
@@ -266,7 +275,8 @@ python -m cvrp.runlog                 # 지금까지의 Run 기록 보기 (--eva
 
 ### 평가 Run 기록 (`results/runs.csv`)
 - `eval_pipeline`을 실행할 때마다 **Run 단위로 한 줄씩(방법별)** 결과가 쌓입니다. `--no-log`로 끌 수 있습니다.
-- 기록 항목: `run_id`, 날짜, `git_commit`(커밋 안 된 변경이 있으면 `-dirty`), 체크포인트, `eval_set`, 방법·설정, 평균 km, NN 대비 개선율, 승률, 최악 인스턴스, 인스턴스당 ms, `note`
+- 기록 항목: `run_id`, 날짜, `git_commit`(runs.csv 외에 커밋 안 된 변경이 있으면 `-dirty`), 체크포인트, `eval_set`, 방법·설정, 평균 km, NN 대비 개선율, 승률, 최악 인스턴스, 인스턴스당 ms, `note`, OR-Tools 대비 gap(`gap_ort_pct`, Run-03부터)
+- OR-Tools 시간 제한은 `--ortools-time`(초, 기본 1)으로 정하고, 0이면 건너뜁니다.
 - `eval_set`(예: `seoul11km-n20-x200-s1234`)이 같으면 완전히 같은 인스턴스 묶음이므로, **같은 eval_set끼리만 비교**합니다.
 - 운영 규칙: 평가셋은 고정하고 **한 번에 한 변수만** 바꾼 뒤 `--note`에 바꾼 내용을 적습니다. CSV는 엑셀에서 바로 열립니다.
 
@@ -283,11 +293,15 @@ cvrp-road-demo/
 │  ├─ solver.py              # 추론 파이프라인 (정규화·best-of-N·회차 분할·2-opt)
 │  ├─ eval_pipeline.py       # 단계별 효과 평가 스크립트 (→ results/runs.csv 기록)
 │  ├─ runlog.py              # Run 기록 저장·조회
+│  ├─ ortools_baseline.py    # OR-Tools 참조해 (평가 전용)
 │  ├─ train_rl.py            # REINFORCE 학습
 │  └─ data.py                # 데이터 생성·route_length 등 유틸
 ├─ results/
 │  └─ runs.csv               # 평가 Run 기록
-├─ tests/                    # pytest (solver, runlog)
+├─ tests/                    # pytest (solver, runlog, API, OR-Tools)
+├─ docs/                     # SPEC·STATE·HISTORY (작업 상태 기록)
+├─ CLAUDE.md                 # Claude Code 작업 규칙
+├─ requirements-dev.txt      # 개발·평가용 의존성
 ├─ web/
 │  └─ index.html             # Leaflet UI
 ├─ checkpoints/

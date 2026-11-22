@@ -34,6 +34,47 @@ def test_append_writes_header_once_and_keeps_korean_note(tmp_path):
     assert rows[0]["date"]  # 자동으로 채워짐
 
 
+def test_old_header_is_migrated_and_rows_kept(tmp_path):
+    p = tmp_path / "runs.csv"
+    old_fields = [f for f in FIELDS if f != "gap_ort_pct"]
+    with p.open("w", encoding="utf-8-sig", newline="") as f:
+        w = csv.DictWriter(f, fieldnames=old_fields)
+        w.writeheader()
+        w.writerow({"run_id": "Run-01", "method": "NN", "note": "옛 기록"})
+
+    append_run(p, [{"method": "OR", "gap_ort_pct": 0.0}], "Run-02", {})
+
+    rows = _read(p)
+    assert list(rows[0].keys()) == FIELDS
+    assert rows[0]["note"] == "옛 기록" and rows[0]["gap_ort_pct"] == ""
+    assert rows[1]["gap_ort_pct"] == "0.0"
+    assert next_run_id(p) == "Run-03"
+
+
+def test_git_commit_ignores_changes_to_run_log(tmp_path):
+    import subprocess
+
+    from cvrp.runlog import git_commit
+
+    def git(*a):
+        subprocess.run(["git", *a], cwd=tmp_path, check=True, capture_output=True)
+
+    git("init", "-q")
+    git("config", "user.email", "t@example.com")
+    git("config", "user.name", "t")
+    (tmp_path / "results").mkdir()
+    (tmp_path / "results" / "runs.csv").write_text("a\n")
+    (tmp_path / "code.py").write_text("x = 1\n")
+    git("add", "-A")
+    git("commit", "-q", "-m", "init")
+
+    (tmp_path / "results" / "runs.csv").write_text("a\nb\n")
+    assert not git_commit(tmp_path).endswith("-dirty")
+
+    (tmp_path / "code.py").write_text("x = 2\n")
+    assert git_commit(tmp_path).endswith("-dirty")
+
+
 def test_unknown_fields_are_ignored(tmp_path):
     p = tmp_path / "runs.csv"
     append_run(p, [{"method": "NN", "not_a_field": 1}], "Run-01", {})

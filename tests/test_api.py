@@ -17,6 +17,12 @@ def _payload(n_customers, n_samples=8, seed=0):
     return {"coords": coords, "demands": demands, "capacity": 10, "n_samples": n_samples}
 
 
+def test_health_reports_threads_and_hides_key_length():
+    r = client.get("/health").json()
+    assert r["torch_threads"] >= 1
+    assert "kakao_key_len" not in r
+
+
 def test_solve_ok():
     r = client.post("/solve", json=_payload(10)).json()
     assert "error" not in r
