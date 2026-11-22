@@ -25,3 +25,19 @@ Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,B +depot-center
 Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,C +best-of-32,depot_center,32,False,155.57,9.4,92.0,-11.2,125.62,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",16.36
 Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,D +2-opt (new default),depot_center,32,True,147.8,14.27,99.0,-2.4,135.55,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",10.09
 Run-04,2026-11-22 16:58,b44c587,best.pt,seoul11km-n50-x100-s1234,OR-Tools (GLS 2s),,,False,134.18,22.0,100.0,9.5,2002.0,"OR-Tools(GLS 2s) 참조해 추가, gap 측정(50명)",0.0
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,NN,,,False,133.74,0.0,0.0,0.0,0.15,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),28.93
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,NN+2opt,,,True,127.57,4.65,99.0,0.0,0.98,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),22.81
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,A legacy (minmax+greedy),minmax,0,False,135.37,-1.56,45.5,-30.5,20.34,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),30.46
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,B +depot-center norm,depot_center,0,False,132.05,0.63,56.5,-33.3,16.42,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),27.55
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,C +best-of-32,depot_center,32,False,125.2,5.95,76.5,-24.5,49.09,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),20.66
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,D +2-opt (new default),depot_center,32,True,122.35,8.18,82.0,-22.3,50.34,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),17.78
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,E +road-aware select/2-opt,depot_center,32,True,115.66,13.3,94.5,-13.3,58.92,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),11.22
+Run-05,2026-11-22 17:36,d430f80,best.pt,seoul11km-n20-x200-s1234-road,OR-Tools (GLS 1s),,,False,103.93,21.99,100.0,4.4,1001.42,도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt),0.0
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,NN,,,False,273.91,0.0,0.0,0.0,0.52,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",29.06
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,NN+2opt,,,True,262.13,4.33,100.0,0.5,2.13,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",23.42
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,A legacy (minmax+greedy),minmax,0,False,292.47,-7.17,15.0,-28.0,42.22,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",38.01
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,B +depot-center norm,depot_center,0,False,279.19,-2.36,38.0,-23.1,34.28,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",31.85
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,C +best-of-32,depot_center,32,False,265.87,2.55,66.0,-15.8,121.44,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",25.46
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,D +2-opt (new default),depot_center,32,True,257.3,5.92,82.0,-7.0,131.35,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",21.12
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,E +road-aware select/2-opt,depot_center,32,True,240.33,12.24,99.0,-0.7,154.22,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",12.99
+Run-06,2026-11-22 17:43,d430f80,best.pt,seoul11km-n50-x100-s1234-road,OR-Tools (GLS 2s),,,False,213.13,22.2,100.0,10.5,2001.83,"도로 거리(OSRM) 기준 평가 + E(도로 거리로 선택·2-opt), 50명",0.0

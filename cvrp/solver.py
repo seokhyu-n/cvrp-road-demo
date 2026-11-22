@@ -6,7 +6,7 @@
   → capacity-only 회차 분할 → 회차별 2-opt → 가장 짧은 후보 선택
 """
 import math
-from typing import Any, Dict, List, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 import numpy as np
 import torch
@@ -118,26 +118,43 @@ def trip_load(trip: Sequence[int], demands: Sequence[float]) -> float:
     return sum(float(demands[i]) for i in trip if i != 0)
 
 
-def two_opt(trip: Sequence[int], dist: np.ndarray, eps: float = 1e-12) -> List[int]:
+def is_symmetric(dist: np.ndarray) -> bool:
+    return bool(np.allclose(dist, dist.T))
+
+
+def two_opt(
+    trip: Sequence[int],
+    dist: np.ndarray,
+    eps: float = 1e-12,
+    symmetric: Optional[bool] = None,
+) -> List[int]:
     """
     한 회차(depot 시작·끝 고정) 안에서 2-opt.
     구간 [i..j]를 뒤집었을 때 짧아지면 적용, 개선이 없을 때까지 반복.
     회차 안의 고객 집합은 그대로라 적재량(용량 제약)은 변하지 않는다.
+
+    도로 거리처럼 비대칭 행렬이면 뒤집힌 구간 내부 간선의 방향도 바뀌므로
+    그 차이까지 더해 판단한다 (symmetric=None이면 행렬을 보고 판단).
     """
     t = list(trip)
-    if len(t) <= 4:  # [0, a, b, 0] 은 뒤집어도 길이 동일
+    if symmetric is None:
+        symmetric = is_symmetric(dist)
+    if symmetric and len(t) <= 4:  # [0, a, b, 0] 은 뒤집어도 길이 동일 (대칭일 때만)
         return t
     improved = True
     while improved:
         improved = False
         for i in range(1, len(t) - 2):
-            a, b = t[i - 1], t[i]
             for j in range(i + 1, len(t) - 1):
-                c, d = t[j], t[j + 1]
+                a, b, c, d = t[i - 1], t[i], t[j], t[j + 1]
                 delta = dist[a, c] + dist[b, d] - dist[a, b] - dist[c, d]
+                if not symmetric:
+                    seg = t[i : j + 1]
+                    fwd = sum(dist[seg[k], seg[k + 1]] for k in range(len(seg) - 1))
+                    rev = sum(dist[seg[k + 1], seg[k]] for k in range(len(seg) - 1))
+                    delta += rev - fwd
                 if delta < -eps:
                     t[i : j + 1] = reversed(t[i : j + 1])
-                    b = t[i]
                     improved = True
     return t
 
@@ -173,12 +190,12 @@ def nearest_neighbor_trips(
 # -----------------------------
 # 전체 추론
 # -----------------------------
-def _candidate(path: Sequence[int], n: int, demands, capacity, dist, use_two_opt):
+def _candidate(path: Sequence[int], n: int, demands, capacity, dist, use_two_opt, symmetric=None):
     order = extract_order(path, n)
     trips = split_trips_capacity_only(order, demands, capacity)
     raw_len = trips_length(trips, dist)
     if use_two_opt:
-        trips = [two_opt(t, dist) for t in trips]
+        trips = [two_opt(t, dist, symmetric=symmetric) for t in trips]
     return {
         "order": order,
         "trips": trips,
@@ -198,15 +215,26 @@ def solve_instance(
     normalize: str = "depot_center",
     seed: int = 0,
     device: str = "cpu",
+    dist: Optional[np.ndarray] = None,
+    km_per_unit: Optional[float] = None,
 ) -> Dict[str, Any]:
     """
     greedy 1개 + sampling n_samples개 후보를 만들고, 각 후보를 회차 분할(+2-opt)한 뒤
-    평면 거리 기준 가장 짧은 후보를 반환한다.
-    거리 단위는 '위도 도'이며 *_km 값은 직선거리 근사(km)다.
+    가장 짧은 후보를 반환한다.
+
+    dist를 주지 않으면 평면 직선거리(단위 '위도 도', km_per_unit=111.32)로 고르고,
+    도로 거리 행렬(km, 비대칭 가능)을 주면 그 거리로 후보 선택과 2-opt를 한다.
+    모델 입력은 어느 경우든 좌표다.
     """
     n = len(demands)
     xy = to_planar(coords_latlng)
-    dist = distance_matrix(xy)
+    if dist is None:
+        dist = distance_matrix(xy)
+        km_per_unit = KM_PER_DEG_LAT if km_per_unit is None else km_per_unit
+    else:
+        dist = np.asarray(dist, dtype=np.float64)
+        km_per_unit = 1.0 if km_per_unit is None else km_per_unit
+    symmetric = is_symmetric(dist)
     xy_model = normalize_for_model(xy, normalize)
 
     coords_t = torch.tensor(xy_model, dtype=torch.float32, device=device).unsqueeze(0)
@@ -214,7 +242,7 @@ def solve_instance(
     cap_t = torch.tensor([float(capacity)], dtype=torch.float32, device=device)
 
     greedy_path, _ = model(coords_t, demands_t, cap_t, decode_type="greedy")
-    greedy = _candidate(greedy_path[0].tolist(), n, demands, capacity, dist, use_two_opt)
+    greedy = _candidate(greedy_path[0].tolist(), n, demands, capacity, dist, use_two_opt, symmetric)
     candidates = [greedy]
 
     if n_samples > 0:
@@ -228,12 +256,12 @@ def solve_instance(
                 decode_type="sampling",
             )
         for p in paths.tolist():
-            candidates.append(_candidate(p, n, demands, capacity, dist, use_two_opt))
+            candidates.append(_candidate(p, n, demands, capacity, dist, use_two_opt, symmetric))
 
     best = min(candidates, key=lambda c: c["length"])
     best_raw = min(c["raw_length"] for c in candidates)
 
-    to_km = lambda v: v * KM_PER_DEG_LAT
+    to_km = lambda v: v * km_per_unit
     return {
         "visit_order": best["order"],
         "trips": best["trips"],

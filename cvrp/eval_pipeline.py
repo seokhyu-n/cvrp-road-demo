@@ -15,6 +15,12 @@
   OR-Tools      : Routing solver + Guided Local Search (시간 제한, 최적에 가까운 참조해)
 
 gap = 인스턴스별 (method - OR-Tools)/OR-Tools 평균. 0%에 가까울수록 참조해에 가깝다.
+
+--metric road 이면 모든 방법을 OSRM 도로 거리(km)로 평가한다 (eval_set 이름 끝에 -road).
+  A~D는 지금처럼 직선거리로 경로를 고른 뒤 도로 거리로 잰다.
+  E는 D와 같지만 후보 선택·2-opt를 도로 거리로 한다 (도로 거리 반영 효과).
+  NN·NN+2opt·OR-Tools는 도로 거리 행렬로 푼다.
+  도로 행렬은 results/road_cache/에 캐시된다 (처음 한 번만 OSRM 호출, 초당 1회).
 OR-Tools는 평가 전용 의존성이다 (pip install -r requirements-dev.txt). 없으면 건너뛴다.
 
 usage:
@@ -40,6 +46,7 @@ from cvrp.solver import (
     trips_length,
     two_opt,
 )
+from cvrp.road import RoadCache
 from cvrp.runlog import append_run, git_commit, next_run_id
 
 REPO = Path(__file__).resolve().parents[1]
@@ -73,7 +80,10 @@ def main():
     ap.add_argument("--no-log", action="store_true")
     ap.add_argument("--ortools-time", type=float, default=1.0,
                     help="OR-Tools 인스턴스당 시간 제한(초). 0이면 건너뜀")
+    ap.add_argument("--metric", choices=["planar", "road"], default="planar",
+                    help="평가 거리: planar(직선, 기본) 또는 road(OSRM 도로 거리)")
     args = ap.parse_args()
+    road = args.metric == "road"
 
     ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
     model = CVRPModel(embed_dim=128, n_heads=8, n_layers=3)
@@ -88,6 +98,11 @@ def main():
         f"C +best-of-{S}": dict(normalize="depot_center", n_samples=S, use_two_opt=False),
         "D +2-opt (new default)": dict(normalize="depot_center", n_samples=S, use_two_opt=True),
     }
+    road_aware = set()
+    if road:
+        e_name = "E +road-aware select/2-opt"
+        variants[e_name] = dict(normalize="depot_center", n_samples=S, use_two_opt=True)
+        road_aware.add(e_name)
 
     use_ort = args.ortools_time > 0
     if use_ort:
@@ -98,13 +113,25 @@ def main():
             use_ort = False
     ort_name = f"OR-Tools (GLS {args.ortools_time:g}s)"
 
+    base_eset = eval_set_id(args.instances, args.customers, args.seed)
+    cache = RoadCache(REPO / "results" / "road_cache" / f"{base_eset}.npz") if road else None
+
     rng = np.random.default_rng(args.seed)
     lengths = {k: [] for k in ["NN", "NN+2opt", *variants, *([ort_name] if use_ort else [])]}
     times = {k: 0.0 for k in lengths}
 
     for i in range(args.instances):
         coords, demands, cap = make_instance(rng, args.customers)
-        dist = distance_matrix(to_planar(coords))
+        planar = distance_matrix(to_planar(coords))
+        if road:
+            dist_m, _ = cache.get(i, coords)
+            road_km = dist_m / 1000.0
+            dist = road_km  # 평가 거리 (km)
+            if cache.dirty and (i + 1) % 20 == 0:
+                cache.save()  # 중간 저장: 끊겨도 받은 만큼은 남긴다
+        else:
+            road_km = None
+            dist = planar  # 평가 거리 (위도 '도' 단위)
 
         t0 = time.perf_counter()
         nn = nearest_neighbor_trips(dist, demands, cap)
@@ -119,15 +146,20 @@ def main():
 
         for name, kw in variants.items():
             t0 = time.perf_counter()
-            res = solve_instance(model, coords, demands, cap, seed=i, **kw)
+            sel = dict(dist=road_km) if name in road_aware else {}
+            res = solve_instance(model, coords, demands, cap, seed=i, **kw, **sel)
             times[name] += time.perf_counter() - t0
-            lengths[name].append(res["length"])
+            lengths[name].append(trips_length(res["trips"], dist))
 
         if use_ort:
             t0 = time.perf_counter()
             ort = solve_ortools(dist, demands, cap, time_limit_s=args.ortools_time)
             times[ort_name] += time.perf_counter() - t0
             lengths[ort_name].append(trips_length(ort, dist))
+
+    if road:
+        cache.save()
+    unit_km = 1.0 if road else KM_PER_DEG_LAT
 
     nn_arr = np.array(lengths["NN"])
     settings = {
@@ -147,7 +179,7 @@ def main():
         rows.append({
             "method": name,
             **settings[name],
-            "mean_km": round(float(v.mean() * KM_PER_DEG_LAT), 2),
+            "mean_km": round(float(v.mean() * unit_km), 2),
             "vs_nn_pct": round(float(imp.mean()), 2),
             "win_pct": round(float((imp > 0).mean() * 100), 1),
             "worst_pct": round(float(imp.min()), 1),
@@ -155,8 +187,8 @@ def main():
             "gap_ort_pct": round(float(((v - ort_arr) / ort_arr * 100).mean()), 2) if use_ort else "",
         })
 
-    eset = eval_set_id(args.instances, args.customers, args.seed)
-    print(f"\neval_set={eset}  samples={S}")
+    eset = base_eset + ("-road" if road else "")
+    print(f"\neval_set={eset}  samples={S}  metric={args.metric}")
     print(f"{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>9}{'gap':>9}{'ms/inst':>10}")
     for r in rows:
         gap = f"{r['gap_ort_pct']:+8.2f}%" if use_ort else f"{'-':>9}"

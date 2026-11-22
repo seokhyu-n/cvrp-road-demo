@@ -11,7 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from cvrp.model import CVRPModel
+from cvrp.road import fetch_osrm_table
 from cvrp.solver import NORMALIZE_MODES, solve_instance
+
+METRICS = ("road", "straight")
+OSRM_TABLE_TIMEOUT_S = 8.0  # 도로 행렬이 이보다 늦으면 직선거리로 대체
 
 MAX_SAMPLES = 128
 # 공개 데모라 요청 하나가 서버를 오래 붙잡지 않도록 상한을 둔다
@@ -41,6 +45,7 @@ class SolveRequest(BaseModel):
     two_opt: bool = True        # 회차별 2-opt 후처리
     normalize: str = "depot_center"  # "depot_center" | "minmax"(기존 방식)
     seed: int = 0
+    metric: str = "road"        # "road": OSRM 도로 거리로 후보 선택·2-opt (실패 시 직선) | "straight"
     decode: Optional[str] = None     # (하위호환) "greedy"면 n_samples=0
 
 
@@ -303,6 +308,8 @@ def solve(req: SolveRequest):
         return {"error": "decode must be 'greedy' or 'sampling'"}
     if req.normalize not in NORMALIZE_MODES:
         return {"error": f"normalize must be one of {list(NORMALIZE_MODES)}"}
+    if req.metric not in METRICS:
+        return {"error": f"metric must be one of {list(METRICS)}"}
     if not (cap > 0):
         return {"error": "capacity must be > 0"}
     if n > MAX_NODES:
@@ -318,6 +325,20 @@ def solve(req: SolveRequest):
 
     n_samples = 0 if req.decode == "greedy" else req.n_samples
 
+    # 도로 거리 행렬 (OSRM table 1회). 실패하면 직선거리로 풀고 이유를 함께 돌려준다.
+    road_km = None
+    metric_used = "straight"
+    road_fallback = None
+    if req.metric == "road":
+        try:
+            dist_m, _ = fetch_osrm_table(
+                req.coords, timeout=OSRM_TABLE_TIMEOUT_S, retries=1, min_interval=0.0
+            )
+            road_km = dist_m / 1000.0
+            metric_used = "road"
+        except Exception as e:
+            road_fallback = f"OSRM table unavailable, used straight-line: {e}"[:300]
+
     try:
         result = solve_instance(
             model,
@@ -329,6 +350,7 @@ def solve(req: SolveRequest):
             normalize=req.normalize,
             seed=req.seed,
             device=device,
+            dist=road_km,
         )
     except Exception as e:
         return {"error": str(e)}
@@ -343,5 +365,8 @@ def solve(req: SolveRequest):
             "n_samples": n_samples,
             "two_opt": req.two_opt,
             "normalize": req.normalize,
+            "metric": req.metric,
+            "metric_used": metric_used,  # stats의 *_km 이 도로 거리인지 직선거리(근사)인지
         },
+        "road_fallback": road_fallback,
     }
