@@ -1,0 +1,157 @@
+"""
+데모 추론 파이프라인의 단계별 효과 측정.
+
+실제 사용 상황처럼 '위경도' 인스턴스를 만든다:
+  - 서울 근처 약 11km × 11km 영역에 고객을 균일 배치
+  - 창고(depot)는 영역 안 임의 위치 (학습 때처럼 중앙에 있지 않음)
+
+비교 대상 (거리 = cos(위도) 보정 평면 직선거리, km 근사):
+  NN            : 용량 제약 Nearest Neighbor (웹 UI의 Baseline)
+  NN+2opt       : NN에 같은 2-opt를 적용한 공정 비교용 Baseline
+  A legacy      : 기존 데모 (min-max 정규화 + greedy)
+  B +norm       : depot 중앙 정규화 + greedy
+  C +best-of-N  : B + sampling N개 중 최선
+  D +2opt       : C + 회차별 2-opt (현재 데모 기본값)
+
+usage:
+  python -m cvrp.eval_pipeline --instances 200 --customers 20 --samples 32 --note "무엇을 바꿨는지"
+
+실행할 때마다 results/runs.csv 에 Run 단위로 결과가 쌓인다 (--no-log 로 끄기).
+기록 보기: python -m cvrp.runlog
+"""
+import argparse
+import time
+from pathlib import Path
+
+import numpy as np
+import torch
+
+from cvrp.model import CVRPModel
+from cvrp.solver import (
+    KM_PER_DEG_LAT,
+    distance_matrix,
+    nearest_neighbor_trips,
+    solve_instance,
+    to_planar,
+    trips_length,
+    two_opt,
+)
+from cvrp.runlog import append_run, git_commit, next_run_id
+
+REPO = Path(__file__).resolve().parents[1]
+
+
+def make_instance(rng: np.random.Generator, n_customers: int):
+    lat_lo, lat_hi = 37.50, 37.60
+    lng_lo, lng_hi = 126.92, 127.045  # cos(37.55°)≈0.79 → 위도 폭과 비슷한 실제 거리
+    lat = rng.uniform(lat_lo, lat_hi, n_customers + 1)
+    lng = rng.uniform(lng_lo, lng_hi, n_customers + 1)
+    coords = np.stack([lat, lng], axis=1).tolist()
+    capacity = float(rng.integers(20, 51))
+    demands = [0.0] + rng.integers(1, 10, n_customers).astype(float).tolist()
+    return coords, demands, capacity
+
+
+def eval_set_id(instances: int, customers: int, seed: int) -> str:
+    """평가셋 식별자. 이 값이 같으면 완전히 같은 인스턴스 묶음이다."""
+    return f"seoul11km-n{customers}-x{instances}-s{seed}"
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--ckpt", default="checkpoints/best.pt")
+    ap.add_argument("--instances", type=int, default=200)
+    ap.add_argument("--customers", type=int, default=20)
+    ap.add_argument("--samples", type=int, default=32)
+    ap.add_argument("--seed", type=int, default=1234)
+    ap.add_argument("--note", default="", help="이번 Run에서 바꾼 것 (runs.csv에 기록)")
+    ap.add_argument("--log", default=str(REPO / "results" / "runs.csv"))
+    ap.add_argument("--no-log", action="store_true")
+    args = ap.parse_args()
+
+    ckpt = torch.load(args.ckpt, map_location="cpu", weights_only=True)
+    model = CVRPModel(embed_dim=128, n_heads=8, n_layers=3)
+    model.load_state_dict(ckpt["model"])
+    model.eval()
+
+    S = args.samples
+    # name -> (solve_instance kwargs, 기록용 설정)
+    variants = {
+        "A legacy (minmax+greedy)": dict(normalize="minmax", n_samples=0, use_two_opt=False),
+        "B +depot-center norm": dict(normalize="depot_center", n_samples=0, use_two_opt=False),
+        f"C +best-of-{S}": dict(normalize="depot_center", n_samples=S, use_two_opt=False),
+        "D +2-opt (new default)": dict(normalize="depot_center", n_samples=S, use_two_opt=True),
+    }
+
+    rng = np.random.default_rng(args.seed)
+    lengths = {k: [] for k in ["NN", "NN+2opt", *variants]}
+    times = {k: 0.0 for k in lengths}
+
+    for i in range(args.instances):
+        coords, demands, cap = make_instance(rng, args.customers)
+        dist = distance_matrix(to_planar(coords))
+
+        t0 = time.perf_counter()
+        nn = nearest_neighbor_trips(dist, demands, cap)
+        t_nn = time.perf_counter() - t0
+        times["NN"] += t_nn
+        lengths["NN"].append(trips_length(nn, dist))
+
+        t0 = time.perf_counter()
+        nn2 = [two_opt(t, dist) for t in nn]
+        times["NN+2opt"] += t_nn + (time.perf_counter() - t0)  # NN 생성 + 2-opt
+        lengths["NN+2opt"].append(trips_length(nn2, dist))
+
+        for name, kw in variants.items():
+            t0 = time.perf_counter()
+            res = solve_instance(model, coords, demands, cap, seed=i, **kw)
+            times[name] += time.perf_counter() - t0
+            lengths[name].append(res["length"])
+
+    nn_arr = np.array(lengths["NN"])
+    settings = {
+        "NN": dict(normalize="", n_samples="", two_opt=False),
+        "NN+2opt": dict(normalize="", n_samples="", two_opt=True),
+        **{
+            k: dict(normalize=v["normalize"], n_samples=v["n_samples"], two_opt=v["use_two_opt"])
+            for k, v in variants.items()
+        },
+    }
+    rows = []
+    for name, vals in lengths.items():
+        v = np.array(vals)
+        imp = (nn_arr - v) / nn_arr * 100
+        rows.append({
+            "method": name,
+            **settings[name],
+            "mean_km": round(float(v.mean() * KM_PER_DEG_LAT), 2),
+            "vs_nn_pct": round(float(imp.mean()), 2),
+            "win_pct": round(float((imp > 0).mean() * 100), 1),
+            "worst_pct": round(float(imp.min()), 1),
+            "ms_per_inst": round(times[name] / args.instances * 1000, 2),
+        })
+
+    eset = eval_set_id(args.instances, args.customers, args.seed)
+    print(f"\neval_set={eset}  samples={S}")
+    print(f"{'method':<28}{'mean km':>9}{'vs NN':>9}{'win%':>7}{'worst':>9}{'ms/inst':>9}")
+    for r in rows:
+        print(
+            f"{r['method']:<28}{r['mean_km']:9.2f}{r['vs_nn_pct']:+8.2f}%"
+            f"{r['win_pct']:6.0f}%{r['worst_pct']:+8.1f}%{r['ms_per_inst']:9.2f}"
+        )
+    print("\nvs NN = 인스턴스별 (NN - method)/NN 평균, win% = NN보다 짧았던 비율, worst = 가장 나빴던 인스턴스")
+
+    if not args.no_log:
+        log = Path(args.log)
+        run_id = next_run_id(log)
+        append_run(log, rows, run_id, {
+            "git_commit": git_commit(REPO),
+            "ckpt": Path(args.ckpt).name,
+            "eval_set": eset,
+            "note": args.note,
+        })
+        print(f"\n[{run_id}] {len(rows)} rows → {log}")
+
+
+if __name__ == "__main__":
+    main()

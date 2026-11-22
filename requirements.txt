@@ -3,3 +3,4 @@ uvicorn[standard]
 requests
 torch
 numpy
+tqdm
