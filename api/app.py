@@ -6,7 +6,7 @@ from typing import List, Optional, Dict, Any
 import requests
 import torch
 from fastapi import FastAPI
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
@@ -24,13 +24,22 @@ MAX_SAMPLE_NODES = MAX_SAMPLES * 51  # n_samples × 지점 수 상한 (고객 50
 
 app = FastAPI(title="CVRP Solver API")
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# 웹 UI는 같은 출처에서 서빙되므로 CORS가 필요 없다. 다른 출처에서 API를 쓰려면
+# CORS_ORIGINS에 쉼표로 적는다. 쿠키·인증을 쓰지 않으므로 credentials는 끈다.
+_cors = [o.strip() for o in os.environ.get("CORS_ORIGINS", "").split(",") if o.strip()]
+if _cors:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=_cors,
+        allow_credentials=False,
+        allow_methods=["GET", "POST"],
+        allow_headers=["Content-Type"],
+    )
+
+
+def _err(msg: str, status: int = 400, **extra) -> JSONResponse:
+    """에러는 {"error": ...} 본문(웹 UI 호환)과 알맞은 HTTP 상태 코드로 돌려준다."""
+    return JSONResponse({"error": msg, **extra}, status_code=status)
 
 BASE_DIR = Path(__file__).resolve().parents[1]
 WEB_INDEX = BASE_DIR / "web" / "index.html"
@@ -197,7 +206,7 @@ else:
 @app.get("/")
 def home():
     if not WEB_INDEX.exists():
-        return {"error": f"index.html not found at {WEB_INDEX}"}
+        return _err(f"index.html not found at {WEB_INDEX}", 500)
     return FileResponse(WEB_INDEX, media_type="text/html")
 
 
@@ -238,7 +247,7 @@ def geocode(q: str, limit: int = 30):
 
         except Exception as e:
             # ✅ 카카오가 막히면 이유를 그대로 반환 (디버그용)
-            return {"error": str(e), "results": []}
+            return _err(str(e), 502, results=[])
 
     # ✅ fallback: nominatim
     url = "https://nominatim.openstreetmap.org/search"
@@ -253,9 +262,12 @@ def geocode(q: str, limit: int = 30):
         "User-Agent": "cvrp-demo/1.0 (educational project)",
         "Accept-Language": "ko",
     }
-    r = requests.get(url, params=params, headers=headers, timeout=15)
-    r.raise_for_status()
-    data = r.json()
+    try:
+        r = requests.get(url, params=params, headers=headers, timeout=15)
+        r.raise_for_status()
+        data = r.json()
+    except Exception as e:
+        return _err(f"geocoder unavailable: {e}", 502, results=[])
 
     results = []
     for item in data:
@@ -270,18 +282,21 @@ def geocode(q: str, limit: int = 30):
 @app.post("/route")
 def route(req: RouteRequest):
     if len(req.coords) < 2:
-        return {"error": "need at least 2 coords"}
+        return _err("need at least 2 coords")
 
     coord_str = ";".join([f"{lng},{lat}" for lat, lng in req.coords])
     url = f"https://router.project-osrm.org/route/v1/driving/{coord_str}"
     params = {"overview": "full", "geometries": "geojson"}
 
-    r = requests.get(url, params=params, timeout=20)
-    r.raise_for_status()
-    js = r.json()
+    try:
+        r = requests.get(url, params=params, timeout=20)
+        r.raise_for_status()
+        js = r.json()
+    except Exception as e:
+        return _err(f"OSRM route unavailable: {e}", 502)
 
     if "routes" not in js or len(js["routes"]) == 0:
-        return {"error": "no route returned", "raw": js}
+        return _err("no route returned", 502, raw=js)
 
     route0 = js["routes"][0]
     coords_lonlat = route0["geometry"]["coordinates"]
@@ -293,35 +308,35 @@ def route(req: RouteRequest):
 @app.post("/solve")
 def solve(req: SolveRequest):
     if model is None:
-        return {"error": f"model not found: {MODEL_PATH}"}
+        return _err(f"model not found: {MODEL_PATH}", 503)
 
     n = len(req.coords)
     cap = float(req.capacity)
 
     if n < 2 or any(len(c) != 2 for c in req.coords):
-        return {"error": "coords must be (N,2) with N >= 2"}
+        return _err("coords must be (N,2) with N >= 2")
     if len(req.demands) != n:
-        return {"error": "demands length must equal coords length"}
+        return _err("demands length must equal coords length")
     if float(req.demands[0]) != 0.0:
-        return {"error": "demands[0] must be 0 (depot)"}
+        return _err("demands[0] must be 0 (depot)")
     if req.decode not in (None, "greedy", "sampling"):
-        return {"error": "decode must be 'greedy' or 'sampling'"}
+        return _err("decode must be 'greedy' or 'sampling'")
     if req.normalize not in NORMALIZE_MODES:
-        return {"error": f"normalize must be one of {list(NORMALIZE_MODES)}"}
+        return _err(f"normalize must be one of {list(NORMALIZE_MODES)}")
     if req.metric not in METRICS:
-        return {"error": f"metric must be one of {list(METRICS)}"}
+        return _err(f"metric must be one of {list(METRICS)}")
     if not (cap > 0):
-        return {"error": "capacity must be > 0"}
+        return _err("capacity must be > 0")
     if n > MAX_NODES:
-        return {"error": f"too many points: {n} (max {MAX_NODES}, depot included)"}
+        return _err(f"too many points: {n} (max {MAX_NODES}, depot included)")
     if not (0 <= req.n_samples <= MAX_SAMPLES):
-        return {"error": f"n_samples must be in [0, {MAX_SAMPLES}]"}
+        return _err(f"n_samples must be in [0, {MAX_SAMPLES}]")
     if req.n_samples * n > MAX_SAMPLE_NODES:
-        return {"error": f"n_samples × points too large (max {MAX_SAMPLE_NODES}); lower n_samples"}
+        return _err(f"n_samples × points too large (max {MAX_SAMPLE_NODES}); lower n_samples")
 
     for i in range(1, n):
         if float(req.demands[i]) > cap:
-            return {"error": f"Customer {i} demand({float(req.demands[i])}) > capacity({cap})"}
+            return _err(f"Customer {i} demand({float(req.demands[i])}) > capacity({cap})")
 
     n_samples = 0 if req.decode == "greedy" else req.n_samples
 
@@ -353,7 +368,7 @@ def solve(req: SolveRequest):
             dist=road_km,
         )
     except Exception as e:
-        return {"error": str(e)}
+        return _err(str(e))
 
     return {
         "visit_order": result["visit_order"],
