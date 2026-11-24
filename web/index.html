@@ -1,132 +1,226 @@
 <!doctype html>
-<html>
+<html lang="ko">
 <head>
   <meta charset="utf-8"/>
-  <title>CVRP Road Demo</title>
+  <title>AI 배송 경로 데모</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
   <style>
-    body { margin:0; font-family: Arial; }
-    #map { height: 68vh; }
-    .panel { padding: 12px; }
-    .row { margin: 8px 0; display:flex; gap:8px; flex-wrap: wrap; align-items:center; }
-    input { width: 260px; padding:6px; }
-    input[type="checkbox"] { width:auto; padding:0; margin:0 4px 0 0; vertical-align: middle; }
-    label { white-space: nowrap; }
-    details > summary { cursor:pointer; color:#555; font-size: 13px; margin-top: 10px; }
-    button { padding: 6px 10px; cursor: pointer; }
-    small { color:#555; }
-    .results { max-height: 150px; overflow:auto; background:#f7f7f7; padding:8px; border:1px solid #ddd; }
-    .result-item { cursor:pointer; padding:6px; border-bottom:1px solid #ddd; }
-    .result-item:hover { background:#eee; }
-    .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px; }
-    .box { border:1px solid #ddd; border-radius: 8px; padding:10px; background:#fff; }
-    table { width:100%; border-collapse: collapse; }
-    th, td { border-bottom:1px solid #eee; padding:6px; text-align:left; font-size: 14px; }
-    th { background:#fafafa; }
-    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
-    .warn { color:#b00020; font-weight: 700; }
-    pre { background:#f5f5f5; padding:10px; overflow:auto; border-radius: 8px; }
-
-    /* ✅ 적재율 게이지 */
-    .load-wrap{ min-width: 170px; }
-    .load-bar{
-      height: 10px;
-      border-radius: 6px;
-      background: #eee;
-      overflow: hidden;
+    :root{
+      --bg:#f4f6f9; --card:#ffffff; --text:#1f2933; --muted:#616e7c; --line:#e4e7eb;
+      --primary:#2563eb; --primary-dark:#1d4ed8; --danger:#b42318;
     }
-    .load-bar > div{ height:10px; background:#4caf50; }
-    .load-txt{ font-size:12px; margin-top:4px; color:#444; }
+    *{ box-sizing: border-box; }
+    body{
+      margin:0; background:var(--bg); color:var(--text);
+      font-family: -apple-system, "Segoe UI", "Malgun Gothic", "Apple SD Gothic Neo", "Noto Sans KR", sans-serif;
+      font-size:15px; line-height:1.55;
+    }
 
-    /* ✅ 비교 박스 */
+    /* 상단 제목 */
+    .topbar{ background:var(--card); border-bottom:1px solid var(--line); padding:12px 16px; }
+    .topbar h1{ margin:0; font-size:18px; }
+    .topbar p{ margin:2px 0 0; color:var(--muted); font-size:13px; }
+
+    #map{ height: 55vh; min-height: 320px; }
+
+    .wrap{ max-width: 1200px; margin: 0 auto; padding: 16px; }
+    .grid{ display:grid; grid-template-columns: 1fr 1fr; gap:16px; }
+    @media (max-width: 860px){ .grid{ grid-template-columns: 1fr; } }
+
+    .card{ background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:16px; }
+    .grid > .card{ margin-bottom:0; }
+    .card h2{ margin:0 0 4px; font-size:16px; }
+    .step{ display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px;
+           border-radius:50%; background:var(--primary); color:#fff; font-size:12px; margin-right:6px; vertical-align:1px; }
+    .hint{ color:var(--muted); font-size:13px; margin:4px 0 0; }
+
+    .field{ margin-top:12px; }
+    .field > label.title{ display:block; font-weight:600; font-size:14px; margin-bottom:4px; }
+    .inline{ display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    input[type="text"], input[type="number"], input:not([type]){
+      padding:8px 10px; border:1px solid #cbd2d9; border-radius:8px; font-size:15px; background:#fff; color:var(--text);
+    }
+    input:focus{ outline:2px solid #93c5fd; border-color:var(--primary); }
+    #q{ flex:1; min-width: 180px; }
+    .num{ width:90px; }
+    input[type="checkbox"]{ width:16px; height:16px; margin:0 6px 0 0; vertical-align:-3px; }
+    .check{ display:block; margin:6px 0; cursor:pointer; }
+
+    button{ white-space:nowrap; font:inherit; padding:8px 14px; border-radius:8px; border:1px solid #cbd2d9; background:#fff; color:var(--text); cursor:pointer; }
+    button:hover{ background:#f0f2f5; }
+    button.primary{ background:var(--primary); border-color:var(--primary); color:#fff; font-weight:600; }
+    button.primary:hover{ background:var(--primary-dark); }
+    button.small{ padding:4px 10px; font-size:13px; }
+    .actions{ display:flex; gap:8px; flex-wrap:wrap; margin-top:16px; }
+    .actions button{ flex:1; min-width:150px; padding:10px 14px; }
+
+    .results{ max-height:180px; overflow:auto; border:1px solid var(--line); border-radius:8px; margin-top:8px; background:#fff; }
+    .result-item{ cursor:pointer; padding:8px 10px; border-bottom:1px solid var(--line); font-size:14px; }
+    .result-item:last-child{ border-bottom:0; }
+    .result-item:hover{ background:#eff6ff; }
+
+    .table-wrap{ overflow:auto; margin-top:8px; border:1px solid var(--line); border-radius:8px; }
+    .stops-wrap{ max-height:260px; }
+    table{ width:100%; border-collapse:collapse; }
+    th, td{ border-bottom:1px solid var(--line); padding:8px 10px; text-align:left; font-size:14px; vertical-align:middle; }
+    th{ background:#f8fafc; font-weight:600; white-space:nowrap; position:sticky; top:0; }
+    tbody tr:last-child td{ border-bottom:0; }
+    td.route{ min-width:200px; line-height:1.7; }
+    .empty{ color:var(--muted); text-align:center; padding:16px; }
+    .badge{ white-space:nowrap; display:inline-block; padding:1px 8px; border-radius:999px; font-size:12px; font-weight:600; }
+    .badge.depot{ background:#fef3c7; color:#92400e; }
+    .badge.cust{ background:#e0f2fe; color:#075985; }
+
+    .mono{ font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size:12px; }
+    .warn{ color:var(--danger); font-weight:700; }
+    pre{ background:#f5f7fa; padding:10px; overflow:auto; border-radius:8px; max-height:360px; }
+    details > summary{ cursor:pointer; color:var(--muted); font-size:13px; }
+
+    /* 결과 요약 */
+    .stat-row{ display:grid; grid-template-columns: repeat(3, 1fr); gap:12px; margin-top:12px; }
+    @media (max-width: 600px){ .stat-row{ grid-template-columns: 1fr; } }
+    .stat{ background:#f8fafc; border:1px solid var(--line); border-radius:10px; padding:12px; }
+    .stat .label{ color:var(--muted); font-size:13px; }
+    .stat .value{ font-size:22px; font-weight:700; margin-top:2px; }
+    .stat .value small{ font-size:14px; font-weight:500; color:var(--muted); }
+    #solveStats{ margin-top:12px; font-size:14px; color:var(--text); }
+    #solveStats:empty{ display:none; }
+
+    /* 적재율 게이지 */
+    .load-wrap{ min-width: 110px; }
+    .load-bar{ height:8px; border-radius:6px; background:#e4e7eb; overflow:hidden; }
+    .load-bar > div{ height:8px; background:#22a06b; }
+    .load-txt{ font-size:12px; margin-top:4px; color:var(--muted); }
+
     .compare-line{ margin: 4px 0; }
 
     /* 알림 메시지: alert()는 일부 내장 브라우저에서 표시되지 않아 화면 안에 보여 준다 */
-    .msg{ margin: 6px 0; padding: 8px 10px; border-radius: 6px; font-size: 14px; }
-    .msg.error{ background:#fdecea; color:#b00020; border:1px solid #f5c2c0; }
+    .msg{ margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; font-size: 14px; }
+    .msg.error{ background:#fdecea; color:var(--danger); border:1px solid #f5c2c0; }
     .msg.info{ background:#eef4ff; color:#1a3d7c; border:1px solid #c9d8f5; }
+
+    @media (max-width: 600px){
+      .wrap{ padding:12px; }
+      .card{ padding:14px; }
+      #map{ height: 45vh; }
+      th, td{ padding:6px 6px; }
+    }
   </style>
 </head>
 <body>
+  <header class="topbar">
+    <h1>🚚 AI 배송 경로 데모</h1>
+    <p>지도에 창고와 고객을 추가하면, AI가 차량 용량에 맞춰 회차를 나누고 실제 도로 경로를 계산합니다.</p>
+  </header>
+
   <div id="map"></div>
 
-  <div class="panel">
-    <div class="row">
-      <b>장소 검색</b>
-      <input id="q" placeholder="예: 서울역, 평택대학교, CU 편의점"/>
-      <button id="searchBtn">Search</button>
-      <button id="resetBtn">Reset</button>
-      물류량 <input id="newDemand" type="number" min="1" value="1" style="width:70px;"/>
-      <small>첫 번째로 추가된 지점이 창고(depot)이고, 이후 고객은 이 물류량으로 추가됩니다.</small>
-    </div>
-
-    <div id="results" class="results" style="display:none;"></div>
-
-    <div class="row">
-      <b>차량 용량(capacity)</b>
-      <input id="cap" value="30" style="width:120px;"/>
-      <button id="solveBtn">Solve (AI + Road)</button>
-      <button id="baselineBtn">Baseline 비교</button>
-      <small>각 고객 demand 합이 capacity를 넘으면 자동으로 회차(trip) 분할됩니다.</small>
-    </div>
-    <div id="msg" class="msg" role="alert" style="display:none;"></div>
-
-    <div class="row">
-      <b>탐색 옵션</b>
-      샘플 수 <input id="nSamples" type="number" min="0" max="128" value="32" style="width:70px;"/>
-      <label><input id="twoOpt" type="checkbox" checked/> 2-opt 후처리</label>
-      <label><input id="roadMetric" type="checkbox" checked/> 도로 거리로 최적화</label>
-      <small>샘플 수 0 = greedy 1회. 샘플을 늘리면 후보가 많아져 경로가 더 짧아질 수 있어요.</small>
-    </div>
-    <div id="solveStats" style="margin:4px 0; font-size:14px;"></div>
-
-    <!-- ✅ 비교 결과 박스 -->
-    <div class="box" style="margin:10px 0;">
-      <b>AI vs Baseline 비교</b>
-      <div id="compareSummary" style="margin-top:8px; font-size:14px;">
-        아직 비교 전입니다. (먼저 Solve를 누른 뒤 Baseline 비교를 누르면 좋아요)
-      </div>
-    </div>
-
+  <main class="wrap">
     <div class="grid">
-      <div class="box">
-        <b>배송 지점 목록 (창고 + 고객)</b>
-        <div style="margin-top:8px; max-height: 220px; overflow:auto;">
-          <table id="stopsTable">
-            <thead>
-              <tr>
-                <th>#</th><th>구분</th><th>물류량</th><th>장소명</th><th>삭제</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
-        </div>
-        <small>표의 물류량 칸에서 바로 수정할 수 있어요.</small>
-      </div>
+      <!-- ① 지점 추가 -->
+      <section class="card">
+        <h2><span class="step">1</span>배송 지점 추가</h2>
+        <p class="hint">처음 추가한 곳이 <b>창고</b>, 그다음부터는 <b>고객</b>이 됩니다.</p>
 
-      <div class="box">
-        <b>회차별 요약</b>
-        <div style="margin-top:8px; max-height: 220px; overflow:auto;">
-          <table id="tripTable">
-            <thead>
-              <tr>
-                <th>회차</th><th>적재량</th><th>잔여용량</th><th>도로거리(km)</th><th>소요시간(분)</th><th>방문순서</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div class="field">
+          <label class="title" for="q">장소 검색</label>
+          <div class="inline">
+            <input id="q" type="text" placeholder="예: 서울역, 평택대학교, CU 편의점"/>
+            <button id="searchBtn" class="primary">검색</button>
+          </div>
+          <div id="results" class="results" style="display:none;"></div>
         </div>
 
-        <div id="totals" style="margin-top:8px;"></div>
-      </div>
+        <div class="field">
+          <label class="title" for="newDemand">새 고객의 물류량</label>
+          <div class="inline">
+            <input id="newDemand" class="num" type="number" min="1" value="1"/>
+            <span class="hint" style="margin:0;">검색 결과를 누르면 이 물류량으로 추가돼요.</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <div class="inline" style="justify-content:space-between;">
+            <label class="title" style="margin:0;">배송 지점 목록</label>
+            <button id="resetBtn" class="small">전체 초기화</button>
+          </div>
+          <div class="table-wrap stops-wrap">
+            <table id="stopsTable">
+              <thead>
+                <tr><th>번호</th><th>구분</th><th>물류량</th><th>장소명</th><th></th></tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+          <p class="hint">물류량은 표에서 바로 고칠 수 있어요.</p>
+        </div>
+      </section>
+
+      <!-- ② 설정 + 실행 -->
+      <section class="card">
+        <h2><span class="step">2</span>차량 설정 후 계산</h2>
+        <p class="hint">고객 물류량의 합이 차량 용량을 넘으면 창고로 돌아와 다음 회차로 나눠 배송합니다.</p>
+
+        <div class="field">
+          <label class="title" for="cap">차량 적재 용량</label>
+          <input id="cap" class="num" type="number" min="1" value="30"/>
+        </div>
+
+        <div class="field">
+          <label class="title" for="nSamples">AI 후보 경로 수</label>
+          <div class="inline">
+            <input id="nSamples" class="num" type="number" min="0" max="128" value="32"/>
+            <span class="hint" style="margin:0;">많을수록 더 짧은 경로를 찾을 수 있어요 (0 = 1개만).</span>
+          </div>
+        </div>
+
+        <div class="field">
+          <label class="title">추가 옵션</label>
+          <label class="check"><input id="twoOpt" type="checkbox" checked/>꼬인 경로 풀기 (2-opt)</label>
+          <label class="check"><input id="roadMetric" type="checkbox" checked/>실제 도로 거리 기준으로 고르기</label>
+        </div>
+
+        <div class="actions">
+          <button id="solveBtn" class="primary">AI 경로 계산</button>
+          <button id="baselineBtn">단순 경로와 비교</button>
+        </div>
+        <div id="msg" class="msg" role="alert" style="display:none;"></div>
+      </section>
     </div>
+
+    <!-- ③ 결과 -->
+    <section class="card" style="margin-top:16px;">
+      <h2><span class="step">3</span>결과</h2>
+
+      <div class="stat-row">
+        <div class="stat">
+          <div class="label">AI 경로 총 도로거리 · 시간</div>
+          <div class="value" id="totals">-</div>
+        </div>
+        <div class="stat" style="grid-column: span 2;">
+          <div class="label">단순 경로(가까운 곳부터 방문)와 비교</div>
+          <div id="compareSummary" style="margin-top:4px;">아직 비교 전이에요. <b>AI 경로 계산</b> 후 <b>단순 경로와 비교</b>를 눌러 보세요.</div>
+        </div>
+      </div>
+      <div id="solveStats"></div>
+
+      <div class="table-wrap">
+        <table id="tripTable">
+          <thead>
+            <tr><th>회차</th><th>적재량</th><th>남은 용량</th><th>도로거리(km)</th><th>소요시간(분)</th><th>방문 순서</th></tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
 
     <details>
-      <summary>응답 JSON 보기 (디버그)</summary>
+      <summary>개발자용: 서버 응답 JSON 보기</summary>
       <pre id="out" class="mono" style="margin-top:6px;"></pre>
     </details>
-  </div>
+  </main>
 
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <script>
@@ -150,27 +244,27 @@
       return full.split(",")[0].trim();
     }
 
-    function idxToName(idx){
-      const s = stops[idx];
-      const nm = simpleName(s?.name || (idx === 0 ? "창고" : `C${idx}`));
-      return (idx === 0) ? `${nm}(창고)` : nm;
+    function escapeHTML(t){
+      return String(t).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
     }
 
+    // 방문 순서 칸: 창고는 "창고", 고객은 "번호 장소명"
     function idxToLabel(idx){
-      return `${idx}(${idxToName(idx)})`;
+      if(idx === 0) return `<b>창고</b>`;
+      return `<span style="white-space:nowrap;">${idx} ${escapeHTML(simpleName(stops[idx]?.name) || `고객${idx}`)}</span>`;
     }
 
     function tripToLabeledRoute(trip){
       return trip.map(idxToLabel).join(" → ");
     }
 
-    function buildIndexMappingHTML(){
-      if(stops.length === 0) return "";
-      return stops.map((s, i) => {
-        const d = (i === 0) ? 0 : s.demand;
-        return `${i} = ${idxToName(i)} (demand: ${d})`;
-      }).join("<br/>");
+    // 지도 마커 팝업 문구
+    function markerLabel(i){
+      const s = stops[i];
+      return (i === 0) ? `창고(0): ${s.name}` : `고객${i} · 물류량 ${s.demand} : ${s.name}`;
     }
+
+    const COMPARE_EMPTY_HTML = "아직 비교 전이에요. <b>AI 경로 계산</b> 후 <b>단순 경로와 비교</b>를 눌러 보세요.";
 
     function loadCellHTML(load, capacity){
       const pct = capacity > 0 ? Math.round((load / capacity) * 100) : 0;
@@ -199,11 +293,13 @@
       lastAiRoad = null;
 
       document.getElementById("out").textContent = "";
-      document.getElementById("totals").textContent = "";
+      document.getElementById("totals").textContent = "-";
       document.getElementById("solveStats").textContent = "";
-      document.getElementById("compareSummary").textContent = "아직 비교 전입니다. (먼저 Solve를 누른 뒤 Baseline 비교를 누르면 좋아요)";
-      document.querySelector("#stopsTable tbody").innerHTML = "";
+      document.getElementById("compareSummary").innerHTML = COMPARE_EMPTY_HTML;
       document.querySelector("#tripTable tbody").innerHTML = "";
+      renderStops();
+      renderTripsEmpty();
+      clearMsg();
 
       const box = document.getElementById("results");
       box.style.display = "none";
@@ -216,16 +312,21 @@
       const tbody = document.querySelector("#stopsTable tbody");
       tbody.innerHTML = "";
 
+      if(stops.length === 0){
+        tbody.innerHTML = `<tr><td colspan="5" class="empty">아직 추가한 지점이 없어요. 위에서 장소를 검색해 창고부터 추가해 주세요.</td></tr>`;
+        return;
+      }
+
       stops.forEach((s, idx) => {
         const tr = document.createElement("tr");
-        const type = (idx === 0) ? "창고" : "고객";
+        const type = (idx === 0) ? `<span class="badge depot">창고</span>` : `<span class="badge cust">고객</span>`;
         tr.innerHTML = `
           <td>${idx}</td>
           <td>${type}</td>
-          <td>${idx === 0 ? 0 : `<input type="number" min="1" step="1" value="${s.demand}" data-dem="${idx}" style="width:60px;"/>`}</td>
-          <td title="${s.name}">${(s.name || "").slice(0, 28)}${(s.name||"").length>28?"…":""}</td>
+          <td>${idx === 0 ? "-" : `<input type="number" min="1" step="1" value="${s.demand}" data-dem="${idx}" style="width:70px; padding:4px 6px;"/>`}</td>
+          <td title="${escapeHTML(s.name || "")}">${escapeHTML(simpleName(s.name))}</td>
           <td>
-            ${idx === 0 ? "" : `<button data-del="${idx}">삭제</button>`}
+            ${idx === 0 ? "" : `<button class="small" data-del="${idx}">삭제</button>`}
           </td>
         `;
         tbody.appendChild(tr);
@@ -237,7 +338,7 @@
           const nd = parseDemand(inp.value, stops[i].demand);
           stops[i].demand = nd;
           inp.value = nd;
-          markers[i].bindPopup(`고객${i} (demand=${nd}) : ${stops[i].name}`);
+          markers[i].bindPopup(markerLabel(i));
         };
       });
 
@@ -250,14 +351,7 @@
           markers.splice(delIdx, 1);
 
           // re-label remaining markers (인덱스 재정렬)
-          markers.forEach((m, i) => {
-            const s = stops[i];
-            if(i === 0){
-              m.bindPopup(`창고(0): ${s.name}`);
-            } else {
-              m.bindPopup(`고객${i} (demand=${s.demand}) : ${s.name}`);
-            }
-          });
+          markers.forEach((m, i) => m.bindPopup(markerLabel(i)));
 
           renderStops();
         };
@@ -276,8 +370,7 @@
 
       stops.push({lat, lng, demand, name});
 
-      const label = (idx === 0) ? `창고(0): ${name}` : `고객${idx} (demand=${demand}) : ${name}`;
-      const m = L.marker([lat, lng]).addTo(map).bindPopup(label);
+      const m = L.marker([lat, lng]).addTo(map).bindPopup(markerLabel(idx));
 
       markers.push(m);
       renderStops();
@@ -309,9 +402,19 @@
       });
 
       if((data.results || []).length === 0){
-        box.innerHTML = data.error ? "<div>검색 실패: 잠시 후 다시 시도해 주세요.</div>" : "<div>검색 결과 없음</div>";
+        box.innerHTML = data.error ? `<div class="empty">검색에 실패했어요. 잠시 후 다시 시도해 주세요.</div>` : `<div class="empty">검색 결과가 없어요.</div>`;
       }
     };
+
+    // 검색창에서 Enter를 눌러도 검색
+    document.getElementById("q").addEventListener("keydown", (e) => {
+      if(e.key === "Enter" && !e.isComposing) document.getElementById("searchBtn").click();
+    });
+
+    function renderTripsEmpty(){
+      document.querySelector("#tripTable tbody").innerHTML =
+        `<tr><td colspan="6" class="empty">아직 계산 전이에요. 지점을 추가하고 <b>AI 경로 계산</b>을 눌러 보세요.</td></tr>`;
+    }
 
     // ===== Solve + Road =====
     async function routeTrip(tripCoords){
@@ -400,7 +503,7 @@
           total_s += rd.duration_s;
 
           if(rd.polyline){
-            const line = L.polyline(rd.polyline, style).addTo(map).bindPopup(`Trip ${t+1}`);
+            const line = L.polyline(rd.polyline, style).addTo(map).bindPopup(`단순 경로 ${t+1}회차`);
             lines.push(line);
           }
         }
@@ -415,14 +518,17 @@
       const aiMin = ai ? ai.min : null;
 
       let html = "";
-      html += `<div class="compare-line">Baseline(NN): <b>${base.km.toFixed(2)} km</b>, ${base.min.toFixed(0)} 분</div>`;
+      html += `<div class="compare-line">단순 경로: <b>${base.km.toFixed(2)} km</b> · ${base.min.toFixed(0)}분 <small class="hint">(지도의 점선)</small></div>`;
 
       if(aiKm != null){
-        html += `<div class="compare-line">AI: <b>${aiKm.toFixed(2)} km</b>, ${aiMin.toFixed(0)} 분</div>`;
-        const diff = ((base.km - aiKm) / base.km) * 100; // base 대비 AI 개선률
-        html += `<div class="compare-line">개선(대략): <b>${diff.toFixed(1)}%</b></div>`;
+        html += `<div class="compare-line">AI 경로: <b>${aiKm.toFixed(2)} km</b> · ${aiMin.toFixed(0)}분</div>`;
+        const diff = base.km > 0 ? ((base.km - aiKm) / base.km) * 100 : 0; // base 대비 AI 개선률
+        const verdict = diff >= 0
+          ? `AI 경로가 <b style="color:#15803d;">${diff.toFixed(1)}% 더 짧아요</b>`
+          : `AI 경로가 <b class="warn">${(-diff).toFixed(1)}% 더 길어요</b>`;
+        html += `<div class="compare-line">${verdict}</div>`;
       } else {
-        html += `<div class="compare-line">(AI 결과가 없어서 Baseline만 표시)</div>`;
+        html += `<div class="compare-line hint">AI 경로를 아직 계산하지 않아 단순 경로만 보여요.</div>`;
       }
 
       el.innerHTML = html;
@@ -447,13 +553,13 @@
       clearMsg();
       try{
         if(stops.length < 2){
-          showMsg("창고 + 고객 1명 이상 추가해주세요.");
+          showMsg("창고와 고객을 1곳 이상 추가해 주세요.");
           return;
         }
 
         const capacity = parseFloat(document.getElementById("cap").value);
         if(!Number.isFinite(capacity) || capacity <= 0){
-          showMsg("capacity를 1 이상 숫자로 입력해주세요.");
+          showMsg("차량 적재 용량을 1 이상의 숫자로 입력해 주세요.");
           return;
         }
 
@@ -463,7 +569,7 @@
 
         for(let i=1;i<demands.length;i++){
           if(demands[i] > capacity){
-            showMsg(`고객${i} 물류량(${demands[i]})이 capacity(${capacity})보다 커서 배송 불가! 물류량을 줄이거나 capacity를 늘려주세요.`);
+            showMsg(`고객${i}의 물류량(${demands[i]})이 차량 적재 용량(${capacity})보다 커서 한 번에 실을 수 없어요. 물류량을 줄이거나 차량 적재 용량을 늘려 주세요.`);
             return;
           }
         }
@@ -485,18 +591,18 @@
         try { sol = JSON.parse(solText); }
         catch(e){
           document.getElementById("out").textContent = solText;
-          showMsg("solve 응답이 JSON이 아님(서버 에러 가능). out 창 확인!");
+          showMsg("서버 응답을 읽지 못했어요(서버 오류일 수 있어요). 맨 아래 '서버 응답 JSON 보기'를 확인해 주세요.");
           return;
         }
 
         document.getElementById("out").textContent = JSON.stringify(sol, null, 2);
 
         if(sol.error){
-          showMsg("solve error: " + sol.error);
+          showMsg("경로 계산 오류: " + sol.error);
           return;
         }
         if(!Array.isArray(sol.trips)){
-          showMsg("solve 결과에 trips가 없음. out 창 확인!");
+          showMsg("계산 결과에 회차 정보가 없어요. 맨 아래 '서버 응답 JSON 보기'를 확인해 주세요.");
           return;
         }
 
@@ -504,13 +610,14 @@
           const st = sol.stats;
           const pct = (a, b) => (a > 0 ? ((a - b) / a * 100).toFixed(1) : "0.0");
           const usedRoad = sol.settings && sol.settings.metric_used === "road";
-          const label = usedRoad ? "단계별 도로 거리" : "단계별 직선거리(근사)";
-          const fallback = sol.road_fallback ? ` <small class="warn">(도로 거리를 못 받아 직선거리로 계산)</small>` : "";
+          const label = usedRoad ? "AI가 경로를 줄여 간 과정 (도로 거리)" : "AI가 경로를 줄여 간 과정 (직선거리 근사)";
+          const fallback = sol.road_fallback ? ` <small class="warn">(도로 거리를 못 받아 직선거리로 계산했어요)</small>` : "";
           document.getElementById("solveStats").innerHTML =
-            `<b>${label}</b>${fallback}: greedy ${st.greedy_km.toFixed(2)} km` +
-            ` → best-of-${sol.n_candidates} ${st.best_of_n_km.toFixed(2)} km` +
-            ` → 최종${sol.settings && sol.settings.two_opt ? "(2-opt)" : ""} <b>${st.final_km.toFixed(2)} km</b>` +
-            ` (greedy 대비 −${pct(st.greedy_km, st.final_km)}%)`;
+            `<b>${label}</b>${fallback}<br/>` +
+            `첫 경로 ${st.greedy_km.toFixed(2)} km` +
+            ` → 후보 ${sol.n_candidates}개 중 최단 ${st.best_of_n_km.toFixed(2)} km` +
+            ` → 최종${sol.settings && sol.settings.two_opt ? "(꼬임 풀기 후)" : ""} <b>${st.final_km.toFixed(2)} km</b>` +
+            ` <span class="hint">(첫 경로보다 ${pct(st.greedy_km, st.final_km)}% 짧음)</span>`;
         }
 
         // clear lines/tables
@@ -520,7 +627,8 @@
 
         const tripBody = document.querySelector("#tripTable tbody");
         tripBody.innerHTML = "";
-        document.getElementById("totals").textContent = "";
+        document.getElementById("totals").textContent = "-";
+        document.getElementById("compareSummary").innerHTML = COMPARE_EMPTY_HTML;
 
         let total_m = 0, total_s = 0;
 
@@ -545,7 +653,7 @@
             roadKm = fmtKm(rd.distance_m);
             roadMin = fmtMin(rd.duration_s);
 
-            const line = L.polyline(rd.polyline).addTo(map).bindPopup(`AI Trip ${tnum}`);
+            const line = L.polyline(rd.polyline).addTo(map).bindPopup(`AI 경로 ${tnum}회차`);
             polylines.push(line);
           }
 
@@ -557,24 +665,14 @@
             <td class="${warn}">${remain.toFixed(1)}</td>
             <td>${roadKm}</td>
             <td>${roadMin}</td>
-            <td class="mono" title="${seq}">${seq.length>80 ? seq.slice(0,80)+"…" : seq}</td>
+            <td class="route">${seq}</td>
           `;
           tripBody.appendChild(tr);
         }
 
-        // 인덱스-장소 매핑(표 마지막 줄)
-        const mapRow = document.createElement("tr");
-        mapRow.innerHTML = `
-          <td colspan="6" class="mono">
-            <b>인덱스-장소 매핑</b><br/>
-            ${buildIndexMappingHTML()}
-          </td>
-        `;
-        tripBody.appendChild(mapRow);
-
         // totals
         const totalsDiv = document.getElementById("totals");
-        totalsDiv.innerHTML = `<b>총 도로거리</b>: ${fmtKm(total_m)} km, <b>총 시간</b>: ${fmtMin(total_s)} 분`;
+        totalsDiv.innerHTML = `${fmtKm(total_m)}<small> km</small> · ${fmtMin(total_s)}<small> 분</small>`;
 
         // ✅ AI totals 저장(비교용)
         lastAiRoad = { km: total_m/1000.0, min: total_s/60.0 };
@@ -586,7 +684,7 @@
         clearMsg();
       } catch(err){
         document.getElementById("out").textContent = String(err);
-        showMsg("Solve 중 JS 에러 발생! out 창 확인해줘.");
+        showMsg("AI 경로 계산 중 오류가 났어요. 맨 아래 '서버 응답 JSON 보기'를 확인해 주세요.");
       }
     };
 
@@ -595,16 +693,17 @@
       clearMsg();
       try{
         if(stops.length < 2){
-          showMsg("창고 + 고객 1명 이상 추가해주세요.");
+          showMsg("창고와 고객을 1곳 이상 추가해 주세요.");
           return;
         }
         const capacity = parseFloat(document.getElementById("cap").value);
         if(!Number.isFinite(capacity) || capacity <= 0){
-          showMsg("capacity를 1 이상 숫자로 입력해주세요.");
+          showMsg("차량 적재 용량을 1 이상의 숫자로 입력해 주세요.");
           return;
         }
 
         clearBaseline();
+        showMsg("단순 경로 계산 중…", "info");
 
         // 1) baseline path/trips 생성
         const basePath = baselineNNPath(capacity);
@@ -616,12 +715,17 @@
 
         // 3) 비교 출력
         renderCompare(lastAiRoad, base);
+        clearMsg();
 
       } catch(err){
         document.getElementById("out").textContent = String(err);
-        showMsg("Baseline 비교 중 에러! out 창 확인해줘.");
+        showMsg("단순 경로 비교 중 오류가 났어요. 잠시 후 다시 시도해 주세요.");
       }
     };
+
+    // 처음 열었을 때 빈 표 안내
+    renderStops();
+    renderTripsEmpty();
   </script>
 </body>
 </html>
