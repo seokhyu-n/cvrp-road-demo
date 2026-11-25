@@ -1,5 +1,11 @@
 # HISTORY
 
+## 2026-11-25 — GitHub Actions 자동 테스트 추가 (ci/pytest-workflow)
+- 한 일: PR과 main push마다 pytest 실행하는 `.github/workflows/tests.yml` 추가(Python 3.11·3.12, CPU torch, pip 캐시, 읽기 권한만). README에 배지.
+- 확인: Render의 Ghostscript 보안 메일(CVE-2026-125396) — 코드에서 Ghostscript·파일 업로드를 쓰지 않고 11-24 커밋이 라이브라 조치 불필요로 판단.
+- 정정: 11-24 STATE의 "Python 3.11도 통과"는 이 PC에서 확인하지 않은 내용이었음(3.12만 확인).
+- 다음 할 일: PR 머지, 그 뒤 후처리 강화(Split DP 등).
+
 ## 2026-11-24 — README 화면·문구 최신화
 - 한 일: PR #10(웹 화면 개편) 머지·라이브 확인(98c05b2). README의 v2 실행 화면(`docs/images/demo_v2.png`)을 라이브 새 화면으로 교체(서울역 창고 + 고객 11곳, 용량 20: AI 33.36km vs 단순 경로 37.43km, 10.9% 짧음). README의 버튼 이름·사용성 항목 갱신. `.claude/launch.json`(서버 실행 설정) 커밋.
 - 결정: 다른 PC에서도 같은 방식으로 서버를 켤 수 있게 launch.json은 저장소에 둔다(상대 경로라 PC 무관).
