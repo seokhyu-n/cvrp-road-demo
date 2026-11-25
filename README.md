@@ -3,6 +3,7 @@
 
 <div align="center">
 
+[![tests](https://github.com/seokhyu-n/cvrp-road-demo/actions/workflows/tests.yml/badge.svg?branch=main)](https://github.com/seokhyu-n/cvrp-road-demo/actions/workflows/tests.yml)
 [![FastAPI](https://img.shields.io/badge/FastAPI-0.110+-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![PyTorch](https://img.shields.io/badge/PyTorch-2.x-EE4C2C?logo=pytorch&logoColor=white)](https://pytorch.org/)
 [![Leaflet](https://img.shields.io/badge/Leaflet-Map-199900?logo=leaflet&logoColor=white)](https://leafletjs.com/)
@@ -33,7 +34,7 @@
 | 경로를 고르는 거리 | 위경도 그대로(min-max 정규화) | **OSRM 실제 도로 거리** (실패 시 보정된 직선거리) |
 | 라이브 응답 시간 (고객 8명) | 약 1.2초 (greedy 1회) | 약 1.2초 (후보 33개 + 2-opt + 도로 거리 조회 포함) |
 | 평가 | Colab 노트북, NN과만 비교, 재현 코드 없음 | 평가 스크립트 + Run 기록, **OR-Tools 참조해**, 도로 거리 캐시로 재현 가능 |
-| 테스트 | 없음 | pytest 36개 |
+| 테스트 | 없음 | pytest 36개, PR마다 자동 실행(GitHub Actions) |
 | 안정성 | 요청 크기 제한 없음, 모델 파일이 없으면 서버 중단, 에러도 HTTP 200 | 요청 크기 상한, 안전한 체크포인트 로드, 400/502/503 상태 코드, CORS 정리 |
 | 사용성 | 일부 브라우저(앱 내장 브라우저 등)에서 고객 추가 불가, 오류가 팝업으로만 표시 | 화면 안 물류량 입력, 탐색 옵션·도로 거리 토글, 단계별 거리 표시, **한글 버튼·단계별(1·2·3) 화면, 오류를 화면 안에 표시, 모바일 대응** |
 
@@ -340,6 +341,8 @@ python -m cvrp.runlog                 # 지금까지의 Run 기록 보기 (--eva
 
 ```text
 cvrp-road-demo/
+├─ .github/workflows/
+│  └─ tests.yml              # push·PR마다 pytest 자동 실행
 ├─ api/
 │  └─ app.py                 # FastAPI 서버 (geocode/solve/route)
 ├─ cvrp/
